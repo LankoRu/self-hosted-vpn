@@ -202,7 +202,17 @@ step "7/9 Сертификат Let's Encrypt на IP"
 mkdir -p "$CERT_DIR"
 ACME="$HOME/.acme.sh/acme.sh"
 if [ ! -x "$ACME" ]; then
-    curl -fsSL https://get.acme.sh | sh -s email="admin@${SERVER_IP}.nip.io" >/dev/null 2>&1 || true
+    # Установщик acme.sh качает архив с GitHub (10-30 c). Без ретраев он падал
+    # на «свежей» сети; ошибку глушить нельзя — иначе непонятный «не установился».
+    for attempt in 1 2 3; do
+        if dl https://get.acme.sh -o /tmp/acme-install.sh \
+            && sh /tmp/acme-install.sh email="admin@${SERVER_IP}.nip.io" >/dev/null; then
+            break
+        fi
+        warn "установка acme.sh не удалась (попытка $attempt/3), повтор через 5 c"
+        sleep 5
+    done
+    rm -f /tmp/acme-install.sh
     ACME="$HOME/.acme.sh/acme.sh"
 fi
 [ -x "$ACME" ] || die "acme.sh не установился"
