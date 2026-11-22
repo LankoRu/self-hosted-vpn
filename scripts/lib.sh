@@ -67,7 +67,9 @@ render_tpl() {
 import os, re, sys
 src, dst = sys.argv[1], sys.argv[2]
 text = open(src).read()
-names = set(re.findall(r"__([A-Z0-9_]+)__", text))
+# Ленивый квантификатор: иначе два соседних плейсхолдера
+# ("__SERVER_IP____SUB_PATH__") склеиваются в одно имя.
+names = set(re.findall(r"__([A-Z0-9_]+?)__", text))
 missing = [n for n in names if n not in os.environ]
 if missing:
     sys.exit(f"render_tpl {src}: не заданы env: {sorted(missing)}")
