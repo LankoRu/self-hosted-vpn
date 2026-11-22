@@ -9,8 +9,12 @@ die()  { printf "${C_ERR}ОШИБКА: %s${C_OFF}\n" "$*" >&2; exit 1; }
 
 # ask VAR "вопрос" "default" — чтение с /dev/tty (работает и при curl|bash).
 # Пустой ввод → default. В неинтерактивном режиме (ASSUME_YES=1) → default.
+# ВАЖНО: внутренняя переменная не должна называться как у вызывающего кода.
+# Bash связывает имена динамически: `local __ans` в ask() перекрывает __ans
+# из ask_yn(), и printf -v __ans писал в перекрытую копию — ask_yn() всегда
+# получал пустую строку и отвечал «нет» на любой вопрос.
 ask() {
-    local __var="$1" __prompt="$2" __def="${3:-}" __ans=""
+    local __var="$1" __prompt="$2" __def="${3:-}" __ask_reply=""
     if [ "${ASSUME_YES:-0}" = "1" ]; then
         printf -v "$__var" '%s' "$__def"
         return 0
@@ -20,9 +24,9 @@ ask() {
     else
         printf "%s: " "$__prompt" >&2
     fi
-    read -r __ans </dev/tty || __ans=""
-    [ -z "$__ans" ] && __ans="$__def"
-    printf -v "$__var" '%s' "$__ans"
+    read -r __ask_reply </dev/tty || __ask_reply=""
+    [ -z "$__ask_reply" ] && __ask_reply="$__def"
+    printf -v "$__var" '%s' "$__ask_reply"
 }
 
 # ask_yn VAR "вопрос" "y|n" → 0/1 в переменную
@@ -37,16 +41,16 @@ ask_yn() {
 
 # ask_secret VAR "вопрос" [default] — без эха (токены/пароли)
 ask_secret() {
-    local __var="$1" __prompt="$2" __def="${3:-}" __ans=""
+    local __var="$1" __prompt="$2" __def="${3:-}" __ask_reply=""
     if [ "${ASSUME_YES:-0}" = "1" ]; then
         printf -v "$__var" '%s' "$__def"
         return 0
     fi
     printf "%s: " "$__prompt" >&2
-    read -rs __ans </dev/tty || __ans=""
+    read -rs __ask_reply </dev/tty || __ask_reply=""
     printf "\n" >&2
-    [ -z "$__ans" ] && __ans="$__def"
-    printf -v "$__var" '%s' "$__ans"
+    [ -z "$__ask_reply" ] && __ask_reply="$__def"
+    printf -v "$__var" '%s' "$__ask_reply"
 }
 
 # render_tpl SRC DST — подстановка __PLACEHOLDER__ из экспортированных env.

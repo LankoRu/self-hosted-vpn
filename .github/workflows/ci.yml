@@ -15,6 +15,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  shell-test:
+    name: bash · python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n (все скрипты)
+        run: |
+          for f in install.sh scripts/*.sh; do
+            bash -n "$f" || { echo "::error::Синтаксис: $f"; exit 1; }
+          done
+
+      - name: хелперы установщика (ask/ask_yn)
+        run: bash scripts/lib_test.sh
+
+      - name: python-скрипты компилируются
+        run: python3 -m py_compile scripts/*.py
+
   build-test:
     name: build · vet · test
     runs-on: ubuntu-latest
