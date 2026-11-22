@@ -24,6 +24,7 @@ SHVPN_REPO="LankoRu/self-hosted-vpn"
 SHVPN_BRANCH="main"
 SHVPN_TOKEN=""
 ASSUME_YES=0
+NO_BOT=0
 
 # предыдущая установка → сохранённые значения (флаги ниже их переопределят).
 # Читается ДО скачивания: сохранённый токен нужен уже для тарбола приватного репо.
@@ -39,8 +40,9 @@ while [ $# -gt 0 ]; do
         --server-ip) need_val "$@"; SERVER_IP="$2"; shift 2 ;;
         --tg-domain) need_val "$@"; TG_DOMAIN="$2"; shift 2 ;;
         --tg-secret) need_val "$@"; TG_SECRET="$2"; shift 2 ;;
-        --bot-token) need_val "$@"; BOT_TOKEN="$2"; shift 2 ;;
-        --bot-chat) need_val "$@"; BOT_CHAT="$2"; shift 2 ;;
+        --bot-token) need_val "$@"; BOT_TOKEN="$2"; NO_BOT=0; shift 2 ;;
+        --bot-chat) need_val "$@"; BOT_CHAT="$2"; NO_BOT=0; shift 2 ;;
+        --no-bot) NO_BOT=1; shift ;;
         --with-awg) WITH_AWG=1; shift ;;
         --no-awg) WITH_AWG=0; shift ;;
         --awg-kernel) AWG_KERNEL=1; shift ;;
@@ -65,6 +67,7 @@ shvpn installer — VPN-схема «наружу только 443» (3x-ui + te
   --tg-secret SECRET            секрет MTProto (дефолт: генерируется)
   --bot-token TOKEN             Telegram bot token (@BotFather) — для vps-admin
   --bot-chat ID                 chat_id админа (@userinfobot) — для vps-admin
+  --no-bot                      vps-admin без Telegram-бота (панель + сбор)
   --with-awg / --no-awg         ставить AmneziaWG 3.1, UDP-443 (дефолт: да)
   --awg-kernel / --awg-userspace  kernel mode AWG (дефолт: kernel)
   --with-vpsadmin / --no-vpsadmin  ставить vps-admin (дефолт: да)
@@ -154,22 +157,26 @@ fi
 [ -n "${WITH_VPSADMIN:-}" ] || ask_yn WITH_VPSADMIN "Ставить vps-admin (бот + веб-панель, регистрация во всех сервисах)?" "y"
 BOT_TOKEN="${BOT_TOKEN:-}"; BOT_CHAT="${BOT_CHAT:-}"
 if [ "$WITH_VPSADMIN" = "1" ]; then
-    if [ "$ASSUME_YES" = "1" ]; then
+    if [ "$NO_BOT" = "1" ]; then
+        BOT_TOKEN=""; BOT_CHAT=""
+    elif [ "$ASSUME_YES" = "1" ]; then
         { [ -n "$BOT_TOKEN" ] && [ -n "$BOT_CHAT" ]; } \
-            || die "--yes: задайте --bot-token и --bot-chat (или --no-vpsadmin)"
+            || die "--yes: задайте --bot-token и --bot-chat (или --no-bot / --no-vpsadmin)"
     else
-        while [ -z "$BOT_TOKEN" ]; do
+        ask_yn _BOT_ON "Подключить Telegram-бота (управление и отчёты в чате)?" "y"
+        [ "$_BOT_ON" = "1" ] || NO_BOT=1
+        while [ "$NO_BOT" = "0" ] && [ -z "$BOT_TOKEN" ]; do
             ask_secret BOT_TOKEN "Telegram bot token (@BotFather)" ""
             [ -n "$BOT_TOKEN" ] || warn "токен обязателен для vps-admin"
         done
-        while [ -z "$BOT_CHAT" ]; do
+        while [ "$NO_BOT" = "0" ] && [ -z "$BOT_CHAT" ]; do
             ask BOT_CHAT "Telegram chat_id админа (узнать: @userinfobot)" ""
             [ -n "$BOT_CHAT" ] || warn "chat_id обязателен для vps-admin"
         done
     fi
 fi
 
-export SERVER_IP TG_DOMAIN TG_SECRET WITH_AWG AWG_KERNEL WITH_VPSADMIN BOT_TOKEN BOT_CHAT
+export SERVER_IP TG_DOMAIN TG_SECRET WITH_AWG AWG_KERNEL WITH_VPSADMIN BOT_TOKEN BOT_CHAT NO_BOT
 export SHVPN_REPO SHVPN_BRANCH SHVPN_TOKEN
 VPSADMIN_VERSION="${VPSADMIN_VERSION:-}"
 export VPSADMIN_VERSION
@@ -178,6 +185,7 @@ save_env "SHVPN_REPO=$SHVPN_REPO" "SHVPN_BRANCH=$SHVPN_BRANCH" \
          "WITH_AWG=$WITH_AWG" "AWG_KERNEL=$AWG_KERNEL" "WITH_VPSADMIN=$WITH_VPSADMIN"
 [ -n "$SHVPN_TOKEN" ] && save_env "SHVPN_TOKEN=$SHVPN_TOKEN"
 [ -n "$BOT_TOKEN" ] && save_env "BOT_TOKEN=$BOT_TOKEN" "BOT_CHAT=$BOT_CHAT"
+[ "$NO_BOT" = "1" ] && save_env "NO_BOT=1"
 [ -n "$VPSADMIN_VERSION" ] && save_env "VPSADMIN_VERSION=$VPSADMIN_VERSION"
 
 # ----------------------------------------------------------------------------
