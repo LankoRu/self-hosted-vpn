@@ -540,7 +540,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    s.sessionToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil, // над HTTPS помечаем cookie как Secure
+		Secure:   isHTTPS(r), // напрямую TLS или за nginx (X-Forwarded-Proto)
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   7 * 24 * 3600,
 	})
@@ -559,6 +559,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// isHTTPS — запрос пришёл по HTTPS: напрямую (r.TLS) или через наш nginx,
+// который ставит X-Forwarded-Proto: https (за прокси r.TLS всегда nil, и
+// cookie уходила без Secure).
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func (s *Server) writeLoginPage(w http.ResponseWriter, errMsg string) {
@@ -620,10 +630,19 @@ button:hover{background:#4f9cff}
 }
 
 // handleQR отдаёт PNG QR-кода для ?text=... (генерируется на сервере, без CDN).
+// maxQRText — предел входных данных для QR: эндпоинт публичный (ключи
+// отдаются по токену), а буфер QR растёт с длиной текста — ограничиваем,
+// чтобы нельзя было нагрузить память/CPU одним запросом.
+const maxQRText = 4096
+
 func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	text := r.URL.Query().Get("text")
 	if text == "" {
 		http.Error(w, "text required", http.StatusBadRequest)
+		return
+	}
+	if len(text) > maxQRText {
+		http.Error(w, "text too long", http.StatusRequestEntityTooLarge)
 		return
 	}
 	png, err := qrcode.Encode(text, qrcode.Medium, 512)

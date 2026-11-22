@@ -46,7 +46,10 @@ type Identity struct {
 // New открывает БД и инициализирует схему.
 func New(path string, cfg *config.Config) (*Store, error) {
 	if dir := dirOf(path); dir != "" {
-		_ = os.MkdirAll(dir, 0o755)
+		// Каталог и файл БД — только владельцу: внутри ключи клиентов
+		// (vless-ссылки, секреты telemt, приватные ключи AWG).
+		_ = os.MkdirAll(dir, 0o700)
+		_ = os.Chmod(dir, 0o700)
 	}
 
 	db, err := sql.Open("sqlite", path)
@@ -70,6 +73,11 @@ func New(path string, cfg *config.Config) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+
+	// SQLite создаёт файл по umask (обычно 0644) — ужесточаем после инициализации
+	// (драйвер открывает файл лениво, до первого запроса chmod применять не к чему).
+	// WAL/SHM появляются при первой записи — подтягиваем и их.
+	restrictDBFiles(path)
 
 	log.Printf("База данных инициализирована: %s", path)
 	return s, nil
@@ -339,6 +347,15 @@ func (s *Store) refreshUserCount() {
 	var n int
 	if err := s.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); err == nil {
 		metrics.UsersRegistered.Set(float64(n))
+	}
+}
+
+// restrictDBFiles выставляет 0600 на файл БД и его WAL/SHM-спутники.
+func restrictDBFiles(path string) {
+	for _, f := range []string{path, path + "-wal", path + "-shm", path + ".lock"} {
+		if _, err := os.Stat(f); err == nil {
+			_ = os.Chmod(f, 0o600)
+		}
 	}
 }
 
