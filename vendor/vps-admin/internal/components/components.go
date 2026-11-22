@@ -295,6 +295,14 @@ func (r *Runner) githubLatestTag(repo string) (string, error) {
 		return e.tag, nil
 	}
 	r.tagMu.Unlock()
+	return r.githubLatestTagFresh(repo)
+}
+
+// githubLatestTagFresh — всегда сетезапрос, без кэша. Используется ПРИ
+// ОБНОВЛЕНИИ: кэш (10 мин) годится для отображения, но не для выбора версии —
+// иначе свежий релиз пропускался бы, а при отставшем кэше можно было бы
+// «обновиться» на старый тег (откат, случившийся на живом сервере).
+func (r *Runner) githubLatestTagFresh(repo string) (string, error) {
 	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
 	if r.cfg.Update.GithubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+r.cfg.Update.GithubToken)
@@ -425,7 +433,7 @@ func sha256File(path string) (string, error) {
 // updateVpsAdmin — self-update: бинарь из Releases своего репо + sha256 +
 // атомарная замена + отложенный перезапуск (ответ UI успевает уйти).
 func updateVpsAdmin(ctx context.Context, r *Runner, j *jobState) error {
-	tag, err := r.githubLatestTag(r.cfg.Update.GithubRepo)
+	tag, err := r.githubLatestTagFresh(r.cfg.Update.GithubRepo)
 	if err != nil || tag == "" {
 		return fmt.Errorf("не удалось получить последний релиз: %v", err)
 	}
@@ -562,7 +570,7 @@ func updateXray(ctx context.Context, r *Runner, j *jobState) error {
 // updateTelemt — бинарь из GitHub Releases telemt (tar.gz + sha256), конфиг
 // и пользователи не трогаются.
 func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
-	tag, err := r.githubLatestTag("telemt/telemt")
+	tag, err := r.githubLatestTagFresh("telemt/telemt")
 	if err != nil || tag == "" {
 		return fmt.Errorf("не удалось получить релиз telemt: %v", err)
 	}

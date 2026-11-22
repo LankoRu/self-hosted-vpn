@@ -106,3 +106,18 @@ func TestVersionParsingHelpers(t *testing.T) {
 		t.Errorf("nginx version = %q", c.Version)
 	}
 }
+
+func TestUpdateBypassesTagCache(t *testing.T) {
+	// Кэш тегов — только для отображения. Обновление обязано запрашивать свежий
+	// релиз: иначе отставший кэш «обновлял» бы бинарь на старый тег (на живом
+	// сервере это привело к откату на v0.1.0 и потере новых API).
+	r := testRunner()
+	r.tagCache["o/r"] = tagEntry{tag: "v0.0.1", at: time.Now()}
+	if got, _ := r.githubLatestTag("o/r"); got != "v0.0.1" {
+		t.Fatalf("кэш не используется для отображения: %q", got)
+	}
+	// свежий запрос идёт в сеть (в тестах — недоступен/ошибка), кэш не отдаётся
+	if got, err := r.githubLatestTagFresh("o/r"); err == nil && got == "v0.0.1" {
+		t.Error("githubLatestTagFresh вернул кэш — обновление может откатить версию")
+	}
+}
