@@ -22,12 +22,31 @@ if [ "$AWG_KERNEL" = "1" ]; then
     if lsmod | grep -q '^amneziawg' && command -v awg >/dev/null 2>&1; then
         ok "модуль уже загружен: $(cat /sys/module/amneziawg/version 2>/dev/null), tools: $(awg --version 2>/dev/null)"
     else
+        # DKMS не соберёт модуль без заголовков ядра. На Ubuntu они обычно уже
+        # есть, на минимальном Debian (образцы облаков) — нет: ставим сами.
+        KVER="$(uname -r)"
+        if [ ! -d "/lib/modules/$KVER/build" ]; then
+            echo "Ставлю заголовки ядра ($KVER)..."
+            apt-get install -y -qq "linux-headers-$KVER" >/dev/null 2>&1 \
+                || apt-get install -y -qq linux-headers-amd64 >/dev/null 2>&1 \
+                || apt-get install -y -qq linux-headers-generic >/dev/null 2>&1 \
+                || warn "заголовки ядра не установились автоматически"
+        fi
+        apt-get install -y -qq dkms build-essential >/dev/null 2>&1 || true
+        [ -d "/lib/modules/$KVER/build" ] || die "нет заголовков ядра $KVER — DKMS не сможет собрать модуль (apt install linux-headers-$KVER)"
+
         if /usr/local/x-ui/x-ui install-awg-kernel; then
             ok "install-awg-kernel отработал"
         else
-            warn "install-awg-kernel упал — применяю патч Ubuntu-бэкпорта API (upstream 70ae2481)"
-            python3 "$HERE/awg-kernel-patch.py"
-            dkms build -m amneziawg -v 1.0.0 --force || die "DKMS-сборка не удалась даже с патчем (см. /var/lib/dkms/amneziawg/1.0.0/build/make.log)"
+            # Патч 70ae2481 нужен только Ubuntu-ядрам 7.0 (бэкпорт API). На
+            # Debian/других ядрах он неприменим — не тратим время и не путаем лог.
+            if [ "$(uname -r | cut -d. -f1-2)" = "7.0" ]; then
+                warn "install-awg-kernel упал — применяю патч Ubuntu-бэкпорта API (upstream 70ae2481)"
+                python3 "$HERE/awg-kernel-patch.py"
+            else
+                warn "install-awg-kernel упал (ядро $(uname -r)) — патч нужен только для Ubuntu 7.0, пропускаю"
+            fi
+            dkms build -m amneziawg -v 1.0.0 --force || die "DKMS-сборка не удалась (см. /var/lib/dkms/amneziawg/1.0.0/build/make.log; можно поставить с --awg-userspace)"
             dkms install -m amneziawg -v 1.0.0 --force
             modprobe amneziawg || die "modprobe amneziawg не удался (Secure Boot?)"
             if ! command -v awg >/dev/null 2>&1; then
