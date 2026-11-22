@@ -96,16 +96,22 @@ if [ "$HAS_TLS" = "0" ]; then
     XRAY_BIN=$(find /usr/local/x-ui/bin -name 'xray-linux-*' | head -1)
     KEYS=$("$XRAY_BIN" x25519)
     PRIV=$(echo "$KEYS" | awk '/[Pp]rivate/{print $NF}')
+    PUB=$(echo "$KEYS" | awk '/[Pp]ublic/{print $NF}')
     VPORT=$((20000 + RANDOM % 20000))
-    python3 - "$PRIV" "$VPORT" <<'PYEOF' > /tmp/shvpn-vless.json
+    python3 - "$PRIV" "$PUB" "$VPORT" <<'PYEOF' > /tmp/shvpn-vless.json
 import json, sys, secrets
-priv, port = sys.argv[1], int(sys.argv[2])
+priv, pub, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
 snis = ["google.com","google-analytics.com","g.co","goo.gl","www.goo.gl",
         "android.com","ai.android","urchin.com","googlecommerce.com","android.clients.google.com"]
+# 3x-ui 3.11 строит vless-ссылку из ВЛОЖЕННОГО settings{publicKey,fingerprint,
+# spiderX}. Без publicKey панель молча выбрасывает pbk/fp из ссылки, и клиент
+# не может подключиться (Reality без публичного ключа не работает). Пишем оба
+# формата: вложенный settings (для ссылок) + target/xver (для xray-core).
 stream = {"network":"tcp","security":"reality","realitySettings":{
     "privateKey":priv,"serverNames":snis,
     "shortIds":[secrets.token_hex(8),secrets.token_hex(4),secrets.token_hex(2)],
-    "target":"google.com:443","xver":0},
+    "target":"google.com:443","xver":0,
+    "settings":{"publicKey":pub,"fingerprint":"chrome","spiderX":"/"}},
     "tcpSettings":{"acceptProxyProtocol":True,"header":{"type":"none"}}}
 print(json.dumps({"up":0,"down":0,"total":0,"remark":"vless-reality","enable":True,
     "expiryTime":0,"listen":"","port":port,"protocol":"vless",

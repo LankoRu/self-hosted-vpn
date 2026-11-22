@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -297,5 +298,49 @@ func TestRealityPrefersTargetAndWritesBoth(t *testing.T) {
 	rs := stream["realitySettings"].(map[string]interface{})
 	if rs["target"] != "www.apple.com:443" || rs["dest"] != "www.apple.com:443" {
 		t.Errorf("после повторного применения target=%v dest=%v (ожидались apple в обоих)", rs["target"], rs["dest"])
+	}
+}
+
+// TestUpdateRealityRestoresPublicKey — если в инбаунде нет nested publicKey,
+// UpdateReality обязан вывести его из privateKey: без publicKey 3x-ui выбрасывает
+// pbk из vless-ссылок, и все клиенты теряют подключение.
+func TestUpdateRealityRestoresPublicKey(t *testing.T) {
+	priv, pub, err := generateRealityKeys()
+	if err != nil {
+		t.Fatalf("keys: %v", err)
+	}
+	// инбаунд «старого» вида: nested settings без publicKey
+	stream := `{"network":"tcp","security":"reality","realitySettings":{` +
+		`"privateKey":"` + priv + `","serverNames":["a.com"],"shortIds":["abcd"],` +
+		`"target":"a.com:443","settings":{"fingerprint":"chrome"}}}`
+
+	var sent map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/panel/api/inbounds/list"):
+			io.WriteString(w, `{"success":true,"obj":[{"id":1,"remark":"vless","protocol":"vless","port":10090,"enable":true,"streamSettings":`+strconv.Quote(stream)+`}]}`)
+		case strings.Contains(r.URL.Path, "/panel/api/inbounds/update/"):
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &sent)
+			io.WriteString(w, `{"success":true,"msg":"ok"}`)
+		default:
+			io.WriteString(w, `{"success":true,"obj":{}}`)
+		}
+	}))
+	defer srv.Close()
+
+	svc := connSvc(srv.URL)
+	if err := svc.UpdateReality(1, &service.RealitySettings{Fingerprint: "chrome"}); err != nil {
+		t.Fatalf("UpdateReality: %v", err)
+	}
+	streams, _ := sent["streamSettings"].(string)
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(streams), &out); err != nil {
+		t.Fatalf("streamSettings не JSON: %v", err)
+	}
+	rs := out["realitySettings"].(map[string]interface{})
+	nested, _ := rs["settings"].(map[string]interface{})
+	if got, _ := nested["publicKey"].(string); got != pub {
+		t.Errorf("publicKey = %q, ожидался выведенный из privateKey %q", got, pub)
 	}
 }

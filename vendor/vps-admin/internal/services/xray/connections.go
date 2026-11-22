@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -186,8 +187,49 @@ func (s *Service) UpdateReality(inboundID int, rs *service.RealitySettings) erro
 		nested["fingerprint"] = rs.Fingerprint
 		reality["settings"] = nested
 	}
+	// publicKey — иначе панель выкинет pbk из вссex ссылок при следующем
+	// обновлении (ссылки станут нерабочими для всех клиентов).
+	if err := ensureRealityPublicKey(reality); err != nil {
+		return err
+	}
 	stream["realitySettings"] = reality
 	return s.updateInbound(ib, stream)
+}
+
+// ensureRealityPublicKey дописывает realitySettings.settings.publicKey, если его
+// нет. 3x-ui строит vless-ссылку из ВЛОЖЕННОГО settings.publicKey; без него из
+// ссылки молча пропадает pbk, и клиент не подключается (Reality без публичного
+// ключа невозможен). Ключ выводим из privateKey (X25519) — он в инбаунде есть.
+func ensureRealityPublicKey(reality map[string]interface{}) error {
+	nested, _ := reality["settings"].(map[string]interface{})
+	if nested == nil {
+		nested = map[string]interface{}{}
+	}
+	if pub, _ := nested["publicKey"].(string); pub != "" {
+		reality["settings"] = nested
+		return nil
+	}
+	privStr, _ := reality["privateKey"].(string)
+	if privStr == "" {
+		return nil // инбаунд не Reality — нечего дописывать
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(privStr)
+	if err != nil || len(raw) != 32 {
+		// Не валидный X25519 (например, инбаунд не наш) — обновление не ломаем,
+		// но предупреждаем: без publicKey ссылки потеряют pbk.
+		log.Printf("[xray] reality: privateKey инбаунда не X25519 (%d байт) — publicKey не выведен", len(raw))
+		return nil
+	}
+	priv, err := ecdh.X25519().NewPrivateKey(raw)
+	if err != nil {
+		return fmt.Errorf("reality: приватный ключ: %w", err)
+	}
+	nested["publicKey"] = base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes())
+	if _, ok := nested["spiderX"]; !ok {
+		nested["spiderX"] = "/"
+	}
+	reality["settings"] = nested
+	return nil
 }
 
 // withPort — dest/target в панели хранится как host:port.
