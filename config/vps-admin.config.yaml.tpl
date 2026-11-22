@@ -43,6 +43,12 @@ telemt:
 counter_reset:
   threshold_percent: 5.0
 
+# Обновления из панели («Система» → «Компоненты»).
+update:
+  github_repo: "LankoRu/self-hosted-vpn"  # релизы vps-admin (источник self-update)
+  github_token: ""                        # PAT для приватного репо (Contents: Read)
+  check_interval: "1h"                    # как часто проверять версии/пакеты
+
 prometheus:
   port: 2112
   enabled: true

@@ -20,6 +20,9 @@ type Config struct {
 	Update struct {
 		GithubRepo  string `yaml:"github_repo"`  // репо релизов vps-admin (OWNER/NAME)
 		GithubToken string `yaml:"github_token"` // PAT для приватного репо (Contents: Read)
+		// CheckInterval — как часто в фоне проверять версии/обновления
+		// («1h», «30m», «6h»). По умолчанию раз в час.
+		CheckInterval string `yaml:"check_interval"`
 	} `yaml:"update"`
 
 	Telegram struct {
@@ -183,6 +186,9 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Update.GithubRepo == "" {
 		c.Update.GithubRepo = "LankoRu/self-hosted-vpn"
+	}
+	if c.Update.CheckInterval == "" {
+		c.Update.CheckInterval = "1h"
 	}
 	if c.LogPath == "" {
 		c.LogPath = "/var/log/vps-admin/vps-admin.log"

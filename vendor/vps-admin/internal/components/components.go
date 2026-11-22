@@ -24,9 +24,6 @@ import (
 	"github.com/LankoRu/vps-admin/internal/version"
 )
 
-// execCommand подменяется в тестах (сигнатура exec.CommandContext).
-var execCommand = exec.CommandContext
-
 // Базовые адреса GitHub (подменяются в тестах).
 var (
 	githubAPIBase = "https://api.github.com"
@@ -92,11 +89,16 @@ func (j *jobState) finish(state string) {
 }
 
 // Runner — сбор версий и запуск обновлений.
+type cmdFunc func(ctx context.Context, name string, args ...string) *exec.Cmd
+
 type Runner struct {
-	cfg      *config.Config
-	mu       sync.Mutex
-	jobs     map[string]*jobState
-	client   *http.Client
+	cfg    *config.Config
+	mu     sync.Mutex
+	jobs   map[string]*jobState
+	client *http.Client
+	// cmd — фабрика команд (exec.CommandContext); поле, а не глобал: иначе
+	// подмена в тестах гоняется с goroutine выполняющегося job'а (data race).
+	cmd      cmdFunc
 	tagMu    sync.Mutex
 	tagCache map[string]tagEntry // кэш GitHub-тегов (rate limit 60/ч без токена)
 
@@ -119,6 +121,7 @@ func NewRunner(cfg *config.Config) *Runner {
 		cfg:      cfg,
 		jobs:     map[string]*jobState{},
 		client:   &http.Client{Timeout: 60 * time.Second},
+		cmd:      exec.CommandContext,
 		tagCache: map[string]tagEntry{},
 	}
 }
@@ -163,14 +166,23 @@ func (r *Runner) Start(name string) error {
 	return nil
 }
 
-// RefreshInterval — период фоновой проверки обновлений.
-const RefreshInterval = time.Hour
+// DefaultRefreshInterval — период фоновой проверки по умолчанию (конфиг:
+// update.check_interval).
+const DefaultRefreshInterval = time.Hour
+
+// RefreshInterval — период из конфига (некорректное значение → час).
+func (r *Runner) RefreshInterval() time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(r.cfg.Update.CheckInterval)); err == nil && d >= time.Minute {
+		return d
+	}
+	return DefaultRefreshInterval
+}
 
 // StartRefresher запускает фоновое обновление снимка: сразу при старте и далее
 // раз в интервал. Вызывать горутиной из main.
 func (r *Runner) StartRefresher(ctx context.Context) {
 	r.Refresh(ctx)
-	t := time.NewTicker(RefreshInterval)
+	t := time.NewTicker(r.RefreshInterval())
 	defer t.Stop()
 	for {
 		select {
@@ -248,8 +260,8 @@ func (r *Runner) collect(ctx context.Context) []Component {
 	return out
 }
 
-func runOut(ctx context.Context, name string, args ...string) (string, error) {
-	c := execCommand(ctx, name, args...)
+func (r *Runner) runOut(ctx context.Context, name string, args ...string) (string, error) {
+	c := r.cmd(ctx, name, args...)
 	b, err := c.Output()
 	return strings.TrimSpace(string(b)), err
 }
@@ -304,7 +316,7 @@ func (r *Runner) panel3xui() Component {
 		}
 		return c
 	}
-	if v, err := runOut(context.Background(), "/usr/local/x-ui/x-ui", "-v"); err == nil {
+	if v, err := r.runOut(context.Background(), "/usr/local/x-ui/x-ui", "-v"); err == nil {
 		c.Version = firstLine(v)
 	} else {
 		c.Version = "—"
@@ -319,7 +331,7 @@ func (r *Runner) panel3xui() Component {
 func (r *Runner) xray() Component {
 	c := Component{Name: "xray", Title: "Xray-core", Updatable: true}
 	bin := "/usr/local/x-ui/bin/xray-linux-" + runtime.GOARCH
-	if v, err := runOut(context.Background(), bin, "-version"); err == nil {
+	if v, err := r.runOut(context.Background(), bin, "-version"); err == nil {
 		// "Xray 26.10.21 (Xray, ...) ..." → берём второе поле
 		f := strings.Fields(firstLine(v))
 		if len(f) >= 2 {
@@ -341,7 +353,7 @@ func (r *Runner) xray() Component {
 
 func (r *Runner) telemt() Component {
 	c := Component{Name: "telemt", Title: "telemt (MTProto)", Updatable: true}
-	if v, err := runOut(context.Background(), "telemt", "--version"); err == nil {
+	if v, err := r.runOut(context.Background(), "telemt", "--version"); err == nil {
 		f := strings.Fields(firstLine(v))
 		if len(f) >= 2 {
 			c.Version = f[len(f)-1]
@@ -359,7 +371,7 @@ func (r *Runner) telemt() Component {
 func (r *Runner) amneziawg() Component {
 	c := Component{Name: "amneziawg", Title: "AmneziaWG (модуль + tools)", Updatable: false,
 		Note: "Обновление модуля ядра — через установщик (DKMS + патч Ubuntu 7.0)"}
-	if v, err := runOut(context.Background(), "awg", "--version"); err == nil {
+	if v, err := r.runOut(context.Background(), "awg", "--version"); err == nil {
 		f := strings.Fields(firstLine(v))
 		if len(f) >= 2 {
 			c.Version = strings.TrimPrefix(f[1], "v")
@@ -367,7 +379,7 @@ func (r *Runner) amneziawg() Component {
 	} else {
 		c.Version = "—"
 	}
-	if v, err := runOut(context.Background(), "modinfo", "-F", "version", "amneziawg"); err == nil && v != "" {
+	if v, err := r.runOut(context.Background(), "modinfo", "-F", "version", "amneziawg"); err == nil && v != "" {
 		c.Version += " / ядро: " + v
 	}
 	return c
@@ -376,7 +388,7 @@ func (r *Runner) amneziawg() Component {
 func (r *Runner) nginx() Component {
 	c := Component{Name: "nginx", Title: "nginx (SNI-роутер)", Updatable: true, Note: "Обновление из apt-репозитория дистрибутива"}
 	c.Version = "—"
-	c2 := execCommand(context.Background(), "nginx", "-v")
+	c2 := r.cmd(context.Background(), "nginx", "-v")
 	b, _ := c2.CombinedOutput() // nginx -v пишет в stderr
 	if i := strings.Index(string(b), "nginx/"); i >= 0 {
 		c.Version = strings.Fields(string(b)[i+6:])[0]
@@ -553,9 +565,9 @@ var updaters = map[string]updaterDef{
 }
 
 // streamCmd выполняет команду, стримя вывод в лог job (видно в окне прогресса).
-func streamCmd(ctx context.Context, j *jobState, name string, args ...string) error {
+func (r *Runner) streamCmd(ctx context.Context, j *jobState, name string, args ...string) error {
 	j.write("$ " + name + " " + strings.Join(args, " ") + "\n")
-	c := execCommand(ctx, name, args...)
+	c := r.cmd(ctx, name, args...)
 	w := &jobWriter{j}
 	c.Stdout = w
 	c.Stderr = w
@@ -642,7 +654,7 @@ func updateVpsAdmin(ctx context.Context, r *Runner, j *jobState) error {
 	if err != nil {
 		return err
 	}
-	if err := streamCmd(ctx, j, "install", "-m", "755", binPath, self+".new"); err != nil {
+	if err := r.streamCmd(ctx, j, "install", "-m", "755", binPath, self+".new"); err != nil {
 		return err
 	}
 	if err := os.Rename(self+".new", self); err != nil {
@@ -710,7 +722,7 @@ func updateXray(ctx context.Context, r *Runner, j *jobState) error {
 		case <-time.After(3 * time.Second):
 		}
 		bin := "/usr/local/x-ui/bin/xray-linux-" + runtime.GOARCH
-		if v, err := runOut(ctx, bin, "-version"); err == nil && strings.Contains(v, strings.TrimPrefix(latest, "v")) {
+		if v, err := r.runOut(ctx, bin, "-version"); err == nil && strings.Contains(v, strings.TrimPrefix(latest, "v")) {
 			j.write("Xray обновлён: " + firstLine(v) + "\n")
 			return nil
 		}
@@ -764,25 +776,25 @@ func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
 		return fmt.Errorf("sha256 не совпала")
 	}
 	j.write("sha256: OK\nРаспаковка...\n")
-	if err := streamCmd(ctx, j, "tar", "-xzf", tmp+"/"+asset, "-C", tmp); err != nil {
+	if err := r.streamCmd(ctx, j, "tar", "-xzf", tmp+"/"+asset, "-C", tmp); err != nil {
 		return err
 	}
 	bin, err := exec.LookPath("telemt")
 	if err != nil {
 		return fmt.Errorf("telemt не найден в PATH: %w", err)
 	}
-	if err := streamCmd(ctx, j, "install", "-m", "755", tmp+"/telemt", bin+".new"); err != nil {
+	if err := r.streamCmd(ctx, j, "install", "-m", "755", tmp+"/telemt", bin+".new"); err != nil {
 		return err
 	}
 	if err := os.Rename(bin+".new", bin); err != nil {
 		return err
 	}
 	j.write("Бинарь заменён: " + bin + "\n")
-	if err := streamCmd(ctx, j, "systemctl", "restart", "telemt"); err != nil {
+	if err := r.streamCmd(ctx, j, "systemctl", "restart", "telemt"); err != nil {
 		return err
 	}
 	time.Sleep(2 * time.Second)
-	if v, err := runOut(ctx, "telemt", "--version"); err == nil {
+	if v, err := r.runOut(ctx, "telemt", "--version"); err == nil {
 		j.write("telemt: " + firstLine(v) + "\n")
 	}
 	return nil
@@ -790,14 +802,14 @@ func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
 
 // updateNginx — обновление пакета из apt + reload.
 func updateNginx(ctx context.Context, r *Runner, j *jobState) error {
-	if err := streamCmd(ctx, j, "apt-get", "update"); err != nil {
+	if err := r.streamCmd(ctx, j, "apt-get", "update"); err != nil {
 		return err
 	}
-	if err := streamCmd(ctx, j, "apt-get", "install", "-y", "--only-upgrade", "nginx"); err != nil {
+	if err := r.streamCmd(ctx, j, "apt-get", "install", "-y", "--only-upgrade", "nginx"); err != nil {
 		return err
 	}
-	if err := streamCmd(ctx, j, "nginx", "-t"); err != nil {
+	if err := r.streamCmd(ctx, j, "nginx", "-t"); err != nil {
 		return err
 	}
-	return streamCmd(ctx, j, "systemctl", "reload", "nginx")
+	return r.streamCmd(ctx, j, "systemctl", "reload", "nginx")
 }
