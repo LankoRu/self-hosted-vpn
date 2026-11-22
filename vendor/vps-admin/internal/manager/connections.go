@@ -418,9 +418,26 @@ func hostOf(dest string) string {
 	return dest
 }
 
+// probeRetry — проба с повторами: на свежих VPS DNS/сеть первые секунды
+// флапают, и одиночный dial даёт ложное «dest не прошёл проверку».
+func probeRetry(fn func() error) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Second)
+	}
+	return err
+}
+
 // probeRealityDest — Reality-цель обязана поддерживать TLS 1.3 + ALPN h2.
 func probeRealityDest(host string) error {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 6 * time.Second}, "tcp",
+	return probeRetry(func() error { return probeRealityOnce(host) })
+}
+
+func probeRealityOnce(host string) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp",
 		net.JoinHostPort(host, "443"),
 		&tls.Config{ServerName: host, NextProtos: []string{"h2"}, MinVersion: tls.VersionTLS13})
 	if err != nil {
@@ -436,7 +453,11 @@ func probeRealityDest(host string) error {
 // probeMaskDomain — домен-маска telemt: реальный HTTPS-сайт с валидным
 // сертификатом (telemt релейит на него сканеры и отдаёт его сертификат).
 func probeMaskDomain(host string) error {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 6 * time.Second}, "tcp",
+	return probeRetry(func() error { return probeMaskOnce(host) })
+}
+
+func probeMaskOnce(host string) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp",
 		net.JoinHostPort(host, "443"), &tls.Config{ServerName: host})
 	if err != nil {
 		return err
