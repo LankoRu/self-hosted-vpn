@@ -28,31 +28,43 @@ func TestStartUnknownComponent(t *testing.T) {
 	}
 }
 
+// registerTestUpdater — синтетический компонент для тестов job-механики
+// (nginx больше не обновляется из панели, а реальные апдейтеры ходят в сеть).
+func registerTestUpdater(t *testing.T, script string) string {
+	t.Helper()
+	name := "testcmd"
+	updaters[name] = updaterDef{updatable: true, run: func(ctx context.Context, r *Runner, j *jobState) error {
+		return r.streamCmd(ctx, j, "sh", "-c", script)
+	}}
+	t.Cleanup(func() { delete(updaters, name) })
+	return name
+}
+
+func waitJob(t *testing.T, r *Runner, name string, within time.Duration) *Job {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if j := r.job(name); j != nil {
+			snap := j.snapshot()
+			if snap.State != "running" {
+				return snap
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return nil
+}
+
 func TestJobStreamsLogAndFinishes(t *testing.T) {
-	// Подменяем exec на заведомо быструю команду с выводом.
+	name := registerTestUpdater(t, "echo строка-раз; echo строка-два")
 	r := testRunner()
 	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "echo строка-раз; echo строка-два")
 	}
-	// nginx-апдейтер состоит из streamCmd — все вызовы уйдут в фейковый exec.
-	if err := r.Start("nginx"); err != nil {
+	if err := r.Start(name); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// повторный запуск активного job отклоняется (пока running)
-	// (гонка допустима: job может завершиться мгновенно — проверяем мягко)
-	deadline := time.Now().Add(5 * time.Second)
-	var job *Job
-	for time.Now().Before(deadline) {
-		for _, c := range r.List() {
-			if c.Name == "nginx" && c.Job != nil && c.Job.State != "running" {
-				job = c.Job
-			}
-		}
-		if job != nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	job := waitJob(t, r, name, 5*time.Second)
 	if job == nil {
 		t.Fatal("job не завершился за 5с")
 	}
@@ -65,40 +77,23 @@ func TestJobStreamsLogAndFinishes(t *testing.T) {
 }
 
 func TestJobErrorState(t *testing.T) {
+	name := registerTestUpdater(t, "echo плохо >&2; exit 3")
 	r := testRunner()
 	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "echo плохо >&2; exit 3")
 	}
-	if err := r.Start("nginx"); err != nil {
+	if err := r.Start(name); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		for _, c := range r.List() {
-			if c.Name == "nginx" && c.Job != nil && c.Job.State == "error" {
-				if !strings.Contains(c.Job.Log, "ОШИБКА") || !strings.Contains(c.Job.Log, "плохо") {
-					t.Errorf("лог ошибки:\n%s", c.Job.Log)
-				}
-				return
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
+	job := waitJob(t, r, name, 5*time.Second)
+	if job == nil {
+		t.Fatal("job не перешёл в error")
 	}
-	t.Fatal("job не перешёл в error")
-}
-
-func TestVersionParsingHelpers(t *testing.T) {
-	if firstLine("a\nb") != "a" {
-		t.Error("firstLine")
+	if job.State != "error" {
+		t.Errorf("state = %q, want error (лог: %s)", job.State, job.Log)
 	}
-	// nginx -v пишет в stderr — версия извлекается из CombinedOutput
-	r := testRunner()
-	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", "echo 'nginx version: nginx/1.28.3' >&2")
-	}
-	c := r.nginx()
-	if c.Version != "1.28.3" {
-		t.Errorf("nginx version = %q", c.Version)
+	if !strings.Contains(job.Log, "ОШИБКА") || !strings.Contains(job.Log, "плохо") {
+		t.Errorf("лог ошибки:\n%s", job.Log)
 	}
 }
 
@@ -121,8 +116,8 @@ func TestListUsesSnapshotNotNetwork(t *testing.T) {
 	r := testRunner()
 	// Снимка нет → localOnly: версии есть, latest/upd пустые, сеть не нужна.
 	bare := r.List()
-	if len(bare) != 6 {
-		t.Fatalf("localOnly = %d компонентов, want 6", len(bare))
+	if len(bare) != 5 {
+		t.Fatalf("localOnly = %d компонентов, want 5", len(bare))
 	}
 	for _, c := range bare {
 		if c.Latest != "" || c.UpdateAvailable {
@@ -150,7 +145,7 @@ func TestListUsesSnapshotNotNetwork(t *testing.T) {
 func TestListAttachesLiveJobToSnapshot(t *testing.T) {
 	pick := func(list []Component) *Component {
 		for i := range list {
-			if list[i].Name == "nginx" {
+			if list[i].Name == "xray" {
 				return &list[i]
 			}
 		}
@@ -159,14 +154,14 @@ func TestListAttachesLiveJobToSnapshot(t *testing.T) {
 	r := testRunner()
 	// до первого снимка job тоже обязан быть виден (окно прогресса)
 	r.mu.Lock()
-	r.jobs["nginx"] = &jobState{state: "running", started: time.Now()}
+	r.jobs["xray"] = &jobState{state: "running", started: time.Now()}
 	r.mu.Unlock()
 	if c := pick(r.List()); c == nil || c.Job == nil || c.Job.State != "running" {
 		t.Errorf("job не подставлен без снимка: %+v", c)
 	}
 
 	r.snapMu.Lock()
-	r.snapshot = []Component{{Name: "nginx", Version: "1.28.3"}}
+	r.snapshot = []Component{{Name: "xray", Version: "26.11.9"}}
 	r.refreshedAt = time.Now()
 	r.snapMu.Unlock()
 	if c := pick(r.List()); c == nil || c.Job == nil || c.Job.State != "running" {
@@ -178,8 +173,8 @@ func TestCollectionWithoutNetworkStillHasVersions(t *testing.T) {
 	// collect() при недоступной сети не падает и отдаёт версии (для 6 строк).
 	r := testRunner()
 	list := r.collect(context.Background())
-	if len(list) != 6 {
-		t.Fatalf("collect = %d, want 6", len(list))
+	if len(list) != 5 {
+		t.Fatalf("collect = %d, want 5", len(list))
 	}
 	names := map[string]bool{}
 	for _, c := range list {
@@ -188,7 +183,7 @@ func TestCollectionWithoutNetworkStillHasVersions(t *testing.T) {
 		}
 		names[c.Name] = true
 	}
-	for _, want := range []string{"vps-admin", "3x-ui", "xray", "telemt", "amneziawg", "nginx"} {
+	for _, want := range []string{"vps-admin", "3x-ui", "xray", "telemt", "amneziawg"} {
 		if !names[want] {
 			t.Errorf("нет компонента %q", want)
 		}

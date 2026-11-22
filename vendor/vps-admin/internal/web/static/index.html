@@ -1289,7 +1289,7 @@ async function loadComponents(){
     else {
       const min = Math.floor((Date.now() - new Date(resp.checked_at).getTime())/60000);
       const ago = min < 1 ? "только что" : (min < 60 ? min+" мин назад" : Math.floor(min/60)+" ч назад");
-      chk.textContent = "проверено " + ago + " · автообновление раз в час";
+      chk.textContent = "проверено " + ago;
     }
   }
   // Ссылки на все веб-страницы стека живут здесь (в шапке их больше нет).
