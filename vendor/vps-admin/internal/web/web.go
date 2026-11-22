@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -86,6 +87,9 @@ func New(cfg *config.Config, st *store.Store, mgr *manager.Manager) *Server {
 
 // Start запускает HTTP-сервер (блокирующий вызов; вызывать в горутине).
 func (s *Server) Start() {
+	// Снимок версий компонентов обновляется раз в час: страница читает кэш,
+	// а не дёргает GitHub на каждый показ (лимит 60 запросов/час на IP).
+	go s.comp.StartRefresher(context.Background())
 	if s.requiresAuth() && s.cfg.Web.Password == "" {
 		log.Printf("[web] ОТКЛЮЧЕНО: listen=%s не loopback, но пароль не задан (web.password)", s.cfg.Web.Listen)
 		return
@@ -396,6 +400,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/users/{username}/regenerate", s.handleRegenerate)
 	mux.HandleFunc("GET /api/connections", s.handleConnectionsState)
 	mux.HandleFunc("GET /api/components", s.handleComponents)
+	mux.HandleFunc("POST /api/components/refresh", s.handleComponentsRefresh)
 	mux.HandleFunc("POST /api/components/{name}/update", s.handleComponentUpdate)
 	mux.HandleFunc("POST /api/connections/reality", s.handleConnectionsReality)
 	mux.HandleFunc("POST /api/connections/telemt", s.handleConnectionsTelemt)

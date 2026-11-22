@@ -121,3 +121,81 @@ func TestUpdateBypassesTagCache(t *testing.T) {
 		t.Error("githubLatestTagFresh вернул кэш — обновление может откатить версию")
 	}
 }
+
+func TestListUsesSnapshotNotNetwork(t *testing.T) {
+	r := testRunner()
+	// Снимка нет → localOnly: версии есть, latest/upd пустые, сеть не нужна.
+	bare := r.List()
+	if len(bare) != 6 {
+		t.Fatalf("localOnly = %d компонентов, want 6", len(bare))
+	}
+	for _, c := range bare {
+		if c.Latest != "" || c.UpdateAvailable {
+			t.Errorf("localOnly не должен ходить в сеть: %+v", c)
+		}
+	}
+	if !r.RefreshedAt().IsZero() {
+		t.Error("снимка ещё нет — RefreshedAt должен быть zero")
+	}
+
+	// Кладём снимок вручную — List обязан вернуть его без сети.
+	r.snapMu.Lock()
+	r.snapshot = []Component{{Name: "xray", Version: "1.0", Latest: "2.0", UpdateAvailable: true}}
+	r.refreshedAt = time.Now()
+	r.snapMu.Unlock()
+	got := r.List()
+	if len(got) != 1 || got[0].Latest != "2.0" || !got[0].UpdateAvailable {
+		t.Errorf("List не вернул снимок: %+v", got)
+	}
+	if r.RefreshedAt().IsZero() {
+		t.Error("RefreshedAt должен быть заполнен")
+	}
+}
+
+func TestListAttachesLiveJobToSnapshot(t *testing.T) {
+	pick := func(list []Component) *Component {
+		for i := range list {
+			if list[i].Name == "nginx" {
+				return &list[i]
+			}
+		}
+		return nil
+	}
+	r := testRunner()
+	// до первого снимка job тоже обязан быть виден (окно прогресса)
+	r.mu.Lock()
+	r.jobs["nginx"] = &jobState{state: "running", started: time.Now()}
+	r.mu.Unlock()
+	if c := pick(r.List()); c == nil || c.Job == nil || c.Job.State != "running" {
+		t.Errorf("job не подставлен без снимка: %+v", c)
+	}
+
+	r.snapMu.Lock()
+	r.snapshot = []Component{{Name: "nginx", Version: "1.28.3"}}
+	r.refreshedAt = time.Now()
+	r.snapMu.Unlock()
+	if c := pick(r.List()); c == nil || c.Job == nil || c.Job.State != "running" {
+		t.Errorf("job не подставлен в снимок: %+v", c)
+	}
+}
+
+func TestCollectionWithoutNetworkStillHasVersions(t *testing.T) {
+	// collect() при недоступной сети не падает и отдаёт версии (для 6 строк).
+	r := testRunner()
+	list := r.collect(context.Background())
+	if len(list) != 6 {
+		t.Fatalf("collect = %d, want 6", len(list))
+	}
+	names := map[string]bool{}
+	for _, c := range list {
+		if c.Name == "" || c.Title == "" {
+			t.Errorf("пустое имя/заголовок: %+v", c)
+		}
+		names[c.Name] = true
+	}
+	for _, want := range []string{"vps-admin", "3x-ui", "xray", "telemt", "amneziawg", "nginx"} {
+		if !names[want] {
+			t.Errorf("нет компонента %q", want)
+		}
+	}
+}
