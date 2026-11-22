@@ -75,24 +75,33 @@ func (b *Bot) handle(m *tgbotapi.Message) {
 		b.send(chatID, b.helpText())
 	case "/myid":
 		b.send(chatID, fmt.Sprintf("Ваш chat_id: %d", chatID))
+	// Отчёты и списки пользователей — только админу: в них имена клиентов,
+	// их логины, туннельные адреса и трафик. Иначе любой, кто знает username
+	// бота, получил бы всё это, просто написав /listusers.
 	case "/size":
-		b.send(chatID, "📁 Размер БД: "+b.store.GetSizeHuman())
+		b.adminOnly(chatID, func() { b.send(chatID, "📁 Размер БД: "+b.store.GetSizeHuman()) })
 
 	case "/today":
-		b.sendReport(chatID, "сегодня", "timestamp >= datetime('now','start of day')")
+		b.adminOnly(chatID, func() {
+			b.sendReport(chatID, "сегодня", "timestamp >= datetime('now','start of day')")
+		})
 	case "/week":
-		b.sendReport(chatID, "неделю", "timestamp >= datetime('now','-7 days')")
+		b.adminOnly(chatID, func() {
+			b.sendReport(chatID, "неделю", "timestamp >= datetime('now','-7 days')")
+		})
 	case "/month":
-		b.sendReport(chatID, "месяц", "timestamp >= datetime('now','start of month')")
+		b.adminOnly(chatID, func() {
+			b.sendReport(chatID, "месяц", "timestamp >= datetime('now','start of month')")
+		})
 	case "/full":
-		b.sendReport(chatID, "всё время", "1=1")
+		b.adminOnly(chatID, func() { b.sendReport(chatID, "всё время", "1=1") })
 	case "/digest":
-		b.sendWeeklyDigest(chatID)
+		b.adminOnly(chatID, func() { b.sendWeeklyDigest(chatID) })
 
 	case "/listusers":
-		b.handleListUsers(chatID)
+		b.adminOnly(chatID, func() { b.handleListUsers(chatID) })
 	case "/user":
-		b.handleUserInfo(chatID, text)
+		b.adminOnly(chatID, func() { b.handleUserInfo(chatID, text) })
 
 	case "/register":
 		b.adminOnly(chatID, func() { b.handleRegister(chatID, text) })
@@ -126,6 +135,7 @@ func (b *Bot) adminOnly(chatID int64, fn func()) {
 
 func (b *Bot) helpText() string {
 	return "🤖 vps-admin — мониторинг и управление VPN\n\n" +
+		"🔐 Все команды, кроме /start, /help и /myid, доступны только админу.\n\n" +
 		"📊 Отчёты:\n" +
 		"/today — трафик за сегодня\n" +
 		"/week — за 7 дней\n" +
@@ -136,7 +146,7 @@ func (b *Bot) helpText() string {
 		"👥 Пользователи:\n" +
 		"/listusers — список пользователей\n" +
 		"/user <имя> — данные и трафик пользователя\n\n" +
-		"🔐 Только админ:\n" +
+		"👤 Управление (только админ):\n" +
 		"/register <имя> — создать пользователя во всех сервисах (логин из имени автоматически)\n" +
 		"/device <имя> <устройство> — доп. конфиг AmneziaWG для устройства (ноутбук, планшет…)\n" +
 		"/deldevice <имя> <устройство> — удалить устройство и его конфиг\n" +
