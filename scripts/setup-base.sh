@@ -32,9 +32,15 @@ if [ -f "$XUI_DB" ]; then
     ok "3x-ui уже установлена ($XUI_DB)"
 else
     echo "Устанавливаю 3x-ui (неинтерактивно, случайные креды)..."
-    curl -fsSL https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh -o /tmp/xui-install.sh
+    # Установщик прибит к тегу: master мог поменять интерактивность/пути между
+    # прогонами. Версию панели установщик берёт из releases/latest (своего
+    # аргумента версии у него нет) — фактическую версию печатаем после установки.
+    XUI_INSTALLER_TAG="${XUI_INSTALLER_TAG:-v3.11.0}"
+    curl -fsSL "https://raw.githubusercontent.com/MHSanaei/3x-ui/${XUI_INSTALLER_TAG}/install.sh" -o /tmp/xui-install.sh \
+        || die "не удалось скачать установщик 3x-ui ${XUI_INSTALLER_TAG}"
     XUI_NONINTERACTIVE=1 bash /tmp/xui-install.sh </dev/null || die "установка 3x-ui не удалась"
     rm -f /tmp/xui-install.sh
+    ok "3x-ui установлена: $(/usr/local/x-ui/x-ui -v 2>/dev/null | head -1) (установщик ${XUI_INSTALLER_TAG})"
     [ -f "$XUI_DB" ] || die "3x-ui не появилась после установки"
 fi
 systemctl is-active --quiet x-ui || systemctl start x-ui
@@ -145,8 +151,10 @@ step "6/9 telemt (Telegram MTProto, 127.0.0.1:$TELEMT_PORT)"
 if ! command -v telemt >/dev/null 2>&1; then
     # -l en обязателен: без него установщик telemt спрашивает язык через
     # `read </dev/tty` и вешает неинтерактивную установку (--yes / curl|bash).
-    curl -fsSL https://raw.githubusercontent.com/telemt/telemt/main/install.sh \
-        | sh -s -- -l en -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN"
+    # Тег фиксирует и скрипт, и версию бинаря (воспроизводимость).
+    TELEMT_TAG="${TELEMT_TAG:-3.5.17}"
+    curl -fsSL "https://raw.githubusercontent.com/telemt/telemt/${TELEMT_TAG}/install.sh" \
+        | VERSION="$TELEMT_TAG" sh -s -- -l en -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN"
 fi
 systemctl stop telemt 2>/dev/null || true
 mkdir -p /etc/nginx/stream.d /var/www/shvpn
@@ -224,7 +232,14 @@ ok "сертификат на месте (продление автоматич�
 # ----------------------------------------------------------------------------
 step "8/9 nginx: SNI-роутер :443 + сайт/панель/подписки"
 cp "$ROOT/config/site/index.html" /var/www/shvpn/index.html
-render_tpl "$ROOT/config/stream-sni-map.conf.tpl" /etc/nginx/stream.d/shvpn-sni-map.conf
+# SNI-карта создаётся только при первой установке: после неё владелец —
+# vps-admin («Подключения» перегенерирует её из состояния 3x-ui + telemt).
+# Повторный прогон установщика не должен откатывать ротацию SNI/транспорты.
+if [ ! -f /etc/nginx/stream.d/shvpn-sni-map.conf ]; then
+    render_tpl "$ROOT/config/stream-sni-map.conf.tpl" /etc/nginx/stream.d/shvpn-sni-map.conf
+else
+    ok "SNI-карта уже есть — не перезаписываю (владелец: vps-admin)"
+fi
 render_tpl "$ROOT/config/stream-router.conf.tpl" /etc/nginx/stream.d/shvpn-router.conf
 render_tpl "$ROOT/config/web.conf.tpl" /etc/nginx/sites-available/shvpn-web
 if ! grep -qE '^stream\s*\{' /etc/nginx/nginx.conf; then
