@@ -36,7 +36,7 @@ else
     # прогонами. Версию панели установщик берёт из releases/latest (своего
     # аргумента версии у него нет) — фактическую версию печатаем после установки.
     XUI_INSTALLER_TAG="${XUI_INSTALLER_TAG:-v3.11.0}"
-    curl -fsSL "https://raw.githubusercontent.com/MHSanaei/3x-ui/${XUI_INSTALLER_TAG}/install.sh" -o /tmp/xui-install.sh \
+    dl "https://raw.githubusercontent.com/MHSanaei/3x-ui/${XUI_INSTALLER_TAG}/install.sh" -o /tmp/xui-install.sh \
         || die "не удалось скачать установщик 3x-ui ${XUI_INSTALLER_TAG}"
     XUI_NONINTERACTIVE=1 bash /tmp/xui-install.sh </dev/null || die "установка 3x-ui не удалась"
     rm -f /tmp/xui-install.sh
@@ -153,8 +153,11 @@ if ! command -v telemt >/dev/null 2>&1; then
     # `read </dev/tty` и вешает неинтерактивную установку (--yes / curl|bash).
     # Тег фиксирует и скрипт, и версию бинаря (воспроизводимость).
     TELEMT_TAG="${TELEMT_TAG:-3.5.17}"
-    curl -fsSL "https://raw.githubusercontent.com/telemt/telemt/${TELEMT_TAG}/install.sh" \
-        | VERSION="$TELEMT_TAG" sh -s -- -l en -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN"
+    dl "https://raw.githubusercontent.com/telemt/telemt/${TELEMT_TAG}/install.sh" -o /tmp/telemt-install.sh \
+        || die "не удалось скачать установщик telemt ${TELEMT_TAG}"
+    VERSION="$TELEMT_TAG" sh /tmp/telemt-install.sh -l en -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN" \
+        || die "установка telemt не удалась"
+    rm -f /tmp/telemt-install.sh
 fi
 systemctl stop telemt 2>/dev/null || true
 mkdir -p /etc/nginx/stream.d /var/www/shvpn
