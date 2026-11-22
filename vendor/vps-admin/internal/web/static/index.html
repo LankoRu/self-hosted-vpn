@@ -1274,13 +1274,17 @@ async function loadComponents(){
   $("#components").innerHTML = list.map(c=>{
     const job = c.job;
     const running = job && job.state==="running";
-    const ver = esc(c.version||"—") + (c.latest?` <span class="muted">→ ${esc(c.latest)}</span>`:"");
+    // Стрелка «→ latest» и кнопка — только когда есть разница версий;
+    // при совпадении — «✓ актуально» (кнопка провоцировала лишние рестарты).
+    const sameVer = c.latest && c.version===c.latest;
+    const ver = esc(c.version||"—") + (c.latest && !sameVer ? ` <span class="muted">→ ${esc(c.latest)}</span>` : "");
     const badge = c.update_available ? ' <span class="chip" style="color:var(--warn)">доступно обновление</span>' : "";
     const state = job && job.state==="error" ? ' <span style="color:var(--red)">ошибка</span>'
       : (job && job.state==="done" ? ' <span style="color:var(--green)">готово</span>' : "");
     const btn = !c.updatable ? `<span class="muted" title="${esc(c.note||"")}">—</span>`
       : running ? `<button class="ghost" onclick="openCompLog('${c.name}')">Прогресс…</button>`
-      : `<button class="ghost${c.update_available?" warnbtn":""}" onclick="updateComponent('${c.name}')">Обновить</button>`;
+      : (sameVer && !c.update_available) ? `<span style="color:var(--green)">✓ актуально</span>`
+      : `<button class="ghost${c.update_available?" warnbtn":""}" title="${esc(c.note||"")}" onclick="updateComponent('${c.name}')">Обновить</button>`;
     return `<div class="row"><span><b>${esc(c.title)}</b>${badge}${state}<br><span class="muted mono">${ver}</span></span><span>${btn}</span></div>`;
   }).join("");
   const anyRunning = list.some(c=>c.job && c.job.state==="running");
