@@ -2,6 +2,8 @@ package components
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
 	"testing"
@@ -197,5 +199,55 @@ func TestCollectionWithoutNetworkStillHasVersions(t *testing.T) {
 		if !names[want] {
 			t.Errorf("нет компонента %q", want)
 		}
+	}
+}
+
+func TestTagFromRedirectFallback(t *testing.T) {
+	// GitHub API отдаёт 403 (лимит) → тег берём из редиректа releases/latest.
+	oldAPI, oldWeb := githubAPIBase, githubWebBase
+	t.Cleanup(func() { githubAPIBase, githubWebBase = oldAPI, oldWeb })
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"message":"API rate limit exceeded"}`))
+	}))
+	t.Cleanup(api.Close)
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/o/r/releases/latest" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Location", "https://github.com/o/r/releases/tag/v9.9.9")
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(web.Close)
+	githubAPIBase, githubWebBase = api.URL, web.URL
+
+	r := testRunner()
+	tag, err := r.githubLatestTagFresh("o/r")
+	if err != nil || tag != "v9.9.9" {
+		t.Fatalf("tag = %q, err = %v (ожидался fallback через редирект)", tag, err)
+	}
+	// успех кэшируется для отображения
+	if got, _ := r.githubLatestTag("o/r"); got != "v9.9.9" {
+		t.Errorf("кэш не заполнен: %q", got)
+	}
+}
+
+func TestTagFromRedirectBroken(t *testing.T) {
+	oldAPI, oldWeb := githubAPIBase, githubWebBase
+	t.Cleanup(func() { githubAPIBase, githubWebBase = oldAPI, oldWeb })
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(api.Close)
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // нет редиректа
+	}))
+	t.Cleanup(web.Close)
+	githubAPIBase, githubWebBase = api.URL, web.URL
+
+	if tag, err := testRunner().githubLatestTagFresh("o/r"); err == nil || tag != "" {
+		t.Errorf("ожидалась ошибка, получено %q / %v", tag, err)
 	}
 }
