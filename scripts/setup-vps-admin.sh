@@ -52,9 +52,9 @@ AUTH=()
 mkdir -p /opt/vps-admin /var/lib/vps-admin /var/log/vps-admin
 TMP=$(mktemp -d /tmp/vps-admin-XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
-curl -fsSL "${AUTH[@]}" -o "$TMP/$ASSET" "$BASE/$ASSET" \
+dl "${AUTH[@]}" -o "$TMP/$ASSET" "$BASE/$ASSET" \
     || die "не удалось скачать $ASSET ($BASE). Приватный репо → задайте SHVPN_TOKEN; нет релизов →(push в main создаёт автоматически) или укажите VPSADMIN_VERSION"
-curl -fsSL "${AUTH[@]}" -o "$TMP/sha256sums.txt" "$BASE/sha256sums.txt" \
+dl "${AUTH[@]}" -o "$TMP/sha256sums.txt" "$BASE/sha256sums.txt" \
     || die "не удалось скачать sha256sums.txt"
 ( cd "$TMP" && grep " $ASSET\$" sha256sums.txt | sha256sum -c - ) \
     || die "контрольная сумма бинаря не совпала — установка прервана"

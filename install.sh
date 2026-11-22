@@ -103,11 +103,13 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -d "$SCRIPT_DIR/config" ]; then
     WORKDIR=$(mktemp -d /tmp/shvpn-XXXXXX)
     if [ -n "$SHVPN_TOKEN" ]; then
         # Приватный репо: тарбол через API с токеном (Contents: Read).
-        curl -fsSL -H "Authorization: Bearer $SHVPN_TOKEN" \
+        curl -fsSL --retry 6 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
+            -H "Authorization: Bearer $SHVPN_TOKEN" \
             "https://api.github.com/repos/${SHVPN_REPO}/tarball/${SHVPN_BRANCH}" \
             | tar -xz -C "$WORKDIR" || { echo "не удалось скачать репозиторий (проверьте --github-token/--repo/--branch)"; exit 1; }
     else
-        curl -fsSL "https://codeload.github.com/${SHVPN_REPO}/tar.gz/refs/heads/${SHVPN_BRANCH}" \
+        curl -fsSL --retry 6 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
+            "https://codeload.github.com/${SHVPN_REPO}/tar.gz/refs/heads/${SHVPN_BRANCH}" \
             | tar -xz -C "$WORKDIR" || { echo "не удалось скачать репозиторий (приватный? задайте --github-token)"; exit 1; }
     fi
     SCRIPT_DIR=$(find "$WORKDIR" -maxdepth 1 -mindepth 1 -type d | head -1)

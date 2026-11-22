@@ -7,6 +7,14 @@ ok()   { printf "${C_OK}%s${C_OFF}\n" "$*"; }
 warn() { printf "${C_WARN}ВНИМАНИЕ: %s${C_OFF}\n" "$*" >&2; }
 die()  { printf "${C_ERR}ОШИБКА: %s${C_OFF}\n" "$*" >&2; exit 1; }
 
+# dl ARGS... — curl для установщика: ретраи на транзиентные сбои.
+# На свежем VPS сеть/DNS первые секунды часто не готовы («Could not resolve
+# host»), и раньше установка падала на первом же скачивании.
+dl() {
+    curl -fsSL --retry 6 --retry-delay 3 --retry-all-errors \
+        --connect-timeout 20 --max-time 300 "$@"
+}
+
 # ask VAR "вопрос" "default" — чтение с /dev/tty (работает и при curl|bash).
 # Пустой ввод → default. В неинтерактивном режиме (ASSUME_YES=1) → default.
 # ВАЖНО: внутренняя переменная не должна называться как у вызывающего кода.
