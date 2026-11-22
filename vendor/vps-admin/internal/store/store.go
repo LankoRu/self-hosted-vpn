@@ -21,8 +21,10 @@ type Store struct {
 	*sql.DB
 	Path string
 	cfg  *config.Config
-	// deltaMu сериализует UpdateDeltas (read-modify-write baseline'а).
-	deltaMu sync.Mutex
+	// writeMu сериализует ПИСАТЕЛЕЙ: дельты трафика (read-modify-write
+	// baseline'а) и сохранение конфигов идентичностей. Иначе на старте сбор и
+	// обновление ссылок идут одновременно и SQLite отдаёт "database is locked".
+	writeMu sync.Mutex
 }
 
 // User — каноничный пользователь, единый для всех сервисов.
@@ -246,6 +248,8 @@ func (s *Store) AddIdentity(userID int64, service, identity, address, cfg string
 // SetIdentityConfig обновляет config идентичности. Возвращает true, только если
 // значение действительно поменялось.
 func (s *Store) SetIdentityConfig(service, identity, cfg string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	res, err := s.Exec(
 		`UPDATE identities SET config = ?
 		 WHERE service = ? AND identity = ? AND config IS NOT ?`,
@@ -368,8 +372,8 @@ func restrictDBFiles(path string) {
 func (s *Store) UpdateDeltas(service string, traffic map[string]uint64) {
 	// Сериализуем read-modify-write: два параллельных сбора (тик крона + стартовый)
 	// иначе читали один baseline и записывали одну и ту же дельту дважды.
-	s.deltaMu.Lock()
-	defer s.deltaMu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	now := time.Now().Format("2006-01-02 15:04:05")
 
 	for identity, current := range traffic {
