@@ -968,3 +968,52 @@ func TestConnectionsAPI(t *testing.T) {
 	}
 	r5.Body.Close()
 }
+
+func TestComponentsAPI(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetDefaults()
+	st, err := store.New(filepath.Join(t.TempDir(), "test.db"), cfg)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ts := httptest.NewServer(New(cfg, st, manager.New(st, registry.New(cfg, st))).Handler())
+	t.Cleanup(ts.Close)
+
+	r, err := http.Get(ts.URL + "/api/components")
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("GET components: %v status=%d", err, r.StatusCode)
+	}
+	var list []struct {
+		Name      string `json:"name"`
+		Updatable bool   `json:"updatable"`
+	}
+	json.NewDecoder(r.Body).Decode(&list)
+	r.Body.Close()
+	if len(list) != 6 {
+		t.Fatalf("компонентов = %d, want 6", len(list))
+	}
+	byName := map[string]bool{}
+	for _, c := range list {
+		byName[c.Name] = c.Updatable
+	}
+	if !byName["vps-admin"] || !byName["3x-ui"] || !byName["xray"] || !byName["telemt"] || !byName["nginx"] {
+		t.Errorf("updatable = %v", byName)
+	}
+	if byName["amneziawg"] {
+		t.Error("amneziawg не должен быть updatable")
+	}
+
+	// неизвестный компонент → 400
+	r2, _ := http.Post(ts.URL+"/api/components/bogus/update", "application/json", nil)
+	if r2.StatusCode != http.StatusBadRequest {
+		t.Errorf("bogus update status = %d, want 400", r2.StatusCode)
+	}
+	r2.Body.Close()
+	// awg → 400 (только версии)
+	r3, _ := http.Post(ts.URL+"/api/components/amneziawg/update", "application/json", nil)
+	if r3.StatusCode != http.StatusBadRequest {
+		t.Errorf("awg update status = %d, want 400", r3.StatusCode)
+	}
+	r3.Body.Close()
+}

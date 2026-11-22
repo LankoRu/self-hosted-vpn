@@ -95,12 +95,15 @@ jobs:
 
       - name: build release binaries
         if: steps.ver.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cd vendor/vps-admin
           for ARCH in amd64 arm64; do
             GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
-              go build -trimpath -ldflags "-s -w" \
+              go build -trimpath \
+              -ldflags "-s -w -X github.com/LankoRu/vps-admin/internal/version.Version=${TAG}" \
               -o "$GITHUB_WORKSPACE/dist/vps-admin-linux-$ARCH" ./cmd/vps-admin
           done
           ( cd "$GITHUB_WORKSPACE/dist" && sha256sum vps-admin-linux-* > sha256sums.txt )

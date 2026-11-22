@@ -1,5 +1,8 @@
 BINARY := vps-admin
 CMD := ./cmd/vps-admin
+# Версия для internal/version (видна в «Система» → «Компоненты»).
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X github.com/LankoRu/vps-admin/internal/version.Version=$(VERSION)
 
 # --- Параметры деплоя по SSH -------------------------------------------------
 # Обязательно: DEPLOY_HOST=user@host   (напр. make deploy DEPLOY_HOST=root@1.2.3.4)
@@ -15,11 +18,11 @@ SCP         := scp -P $(SSH_PORT)
 .PHONY: build build-linux run test tidy clean install deploy logs restart
 
 build:
-	go build -o bin/$(BINARY) $(CMD)
+	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(CMD)
 
 build-linux:
 	mkdir -p bin
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/$(BINARY)-linux-amd64 $(CMD)
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY)-linux-amd64 $(CMD)
 
 # Локальный config.yaml с секретами не в репозитории — создаётся из примера.
 config.yaml:

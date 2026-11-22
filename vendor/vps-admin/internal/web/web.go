@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LankoRu/vps-admin/internal/components"
 	"github.com/LankoRu/vps-admin/internal/config"
 	"github.com/LankoRu/vps-admin/internal/manager"
 	"github.com/LankoRu/vps-admin/internal/service"
@@ -70,15 +71,16 @@ type Server struct {
 	cfg          *config.Config
 	store        *store.Store
 	mgr          *manager.Manager
-	sessionToken string        // валидное значение cookie после входа
-	limiter      *loginLimiter // защита входа от перебора пароля
+	comp         *components.Runner // версии/обновления компонентов стека
+	sessionToken string             // валидное значение cookie после входа
+	limiter      *loginLimiter      // защита входа от перебора пароля
 }
 
 func New(cfg *config.Config, st *store.Store, mgr *manager.Manager) *Server {
 	// Токен сессии детерминирован от пароля: стабилен между рестартами (деплой
 	// не разлогинивает), но автоматически инвалидируется при смене пароля.
 	sum := sha256.Sum256([]byte("vps-admin-session\x00" + cfg.Web.Password))
-	return &Server{cfg: cfg, store: st, mgr: mgr,
+	return &Server{cfg: cfg, store: st, mgr: mgr, comp: components.NewRunner(cfg),
 		sessionToken: hex.EncodeToString(sum[:]), limiter: newLoginLimiter()}
 }
 
@@ -393,6 +395,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/users/{username}", s.handleDeleteUser)
 	mux.HandleFunc("POST /api/users/{username}/regenerate", s.handleRegenerate)
 	mux.HandleFunc("GET /api/connections", s.handleConnectionsState)
+	mux.HandleFunc("GET /api/components", s.handleComponents)
+	mux.HandleFunc("POST /api/components/{name}/update", s.handleComponentUpdate)
 	mux.HandleFunc("POST /api/connections/reality", s.handleConnectionsReality)
 	mux.HandleFunc("POST /api/connections/telemt", s.handleConnectionsTelemt)
 	mux.HandleFunc("POST /api/connections/backup", s.handleConnectionsBackup)

@@ -16,6 +16,12 @@ type Config struct {
 	LogPath      string `yaml:"log_path"`
 	PollInterval string `yaml:"poll_interval"`
 
+	// Update — обновления компонентов из панели («Система» → «Компоненты»).
+	Update struct {
+		GithubRepo  string `yaml:"github_repo"`  // репо релизов vps-admin (OWNER/NAME)
+		GithubToken string `yaml:"github_token"` // PAT для приватного репо (Contents: Read)
+	} `yaml:"update"`
+
 	Telegram struct {
 		Token  string  `yaml:"token"`
 		ChatID int64   `yaml:"chat_id"` // основной чат для отчётов и алертов
@@ -174,6 +180,9 @@ func (c *Config) SetDefaults() {
 	}
 	if c.TeleMT.ConfigPath == "" {
 		c.TeleMT.ConfigPath = "/etc/telemt/telemt.toml"
+	}
+	if c.Update.GithubRepo == "" {
+		c.Update.GithubRepo = "LankoRu/self-hosted-vpn"
 	}
 	if c.LogPath == "" {
 		c.LogPath = "/var/log/vps-admin/vps-admin.log"
