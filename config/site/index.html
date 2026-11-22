@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northline Systems — Infrastructure &amp; Cloud</title>
+<meta name="description" content="Northline Systems provides managed infrastructure, cloud hosting and network services for small teams.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f6feb'/%3E%3Cpath d='M9 23V9l14 14V9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e; --accent:#1f6feb; --border:#30363d; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.6; }
+  .wrap { max-width:960px; margin:0 auto; padding:0 24px; }
+  header { border-bottom:1px solid var(--border); }
+  header .wrap { display:flex; align-items:center; justify-content:space-between; height:64px; }
+  .logo { display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; }
+  .logo svg { width:28px; height:28px; }
+  nav a { color:var(--muted); text-decoration:none; margin-left:24px; font-size:14px; }
+  nav a:hover { color:var(--text); }
+  .hero { padding:88px 0 72px; text-align:center; }
+  .hero h1 { font-size:40px; line-height:1.2; letter-spacing:-.5px; margin-bottom:16px; }
+  .hero p { color:var(--muted); font-size:18px; max-width:640px; margin:0 auto 32px; }
+  .btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none;
+         padding:12px 28px; border-radius:8px; font-weight:600; font-size:15px; }
+  .btn:hover { filter:brightness(1.1); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:20px; padding-bottom:80px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:28px; }
+  .card h3 { font-size:17px; margin-bottom:10px; }
+  .card p { color:var(--muted); font-size:14px; }
+  .card .ico { font-size:26px; margin-bottom:14px; display:block; }
+  footer { border-top:1px solid var(--border); padding:28px 0; color:var(--muted); font-size:13px; }
+  footer .wrap { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  @media (max-width:600px){ .hero h1{font-size:30px;} nav{display:none;} }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">
+      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1f6feb"/><path d="M9 23V9l14 14V9" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Northline Systems
+    </div>
+    <nav>
+      <a href="#services">Services</a>
+      <a href="#about">About</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Infrastructure that just works.</h1>
+    <p>We design, deploy and maintain cloud infrastructure for small teams — so you can focus on your product, not on servers.</p>
+    <a class="btn" href="#contact">Get in touch</a>
+  </div>
+</section>
+
+<section id="services">
+  <div class="wrap grid">
+    <div class="card">
+      <span class="ico">🖥️</span>
+      <h3>Managed Hosting</h3>
+      <p>Virtual servers, storage and backups with monitoring around the clock. Predictable pricing, no surprises.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🌐</span>
+      <h3>Network Services</h3>
+      <p>Secure connectivity, edge routing and traffic engineering for distributed teams and applications.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🛠️</span>
+      <h3>Operations Support</h3>
+      <p>Deployment automation, observability and incident response. We keep your systems healthy.</p>
+    </div>
+  </div>
+</section>
+
+<section id="about">
+  <div class="wrap" style="padding-bottom:80px; max-width:720px;">
+    <h2 style="margin-bottom:12px;">About us</h2>
+    <p style="color:var(--muted);">Northline Systems is a small independent infrastructure studio. Since 2019 we have been helping startups and remote teams run reliable services on modern cloud platforms. We believe in simple architectures, honest documentation and long-term relationships.</p>
+  </div>
+</section>
+
+<footer id="contact">
+  <div class="wrap">
+    <span>© 2026 Northline Systems. All rights reserved.</span>
+    <span>hello@northline.example · Amsterdam, NL</span>
+  </div>
+</footer>
+</body>
+</html>

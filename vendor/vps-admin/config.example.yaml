@@ -1,0 +1,88 @@
+# -----------------------------------------------------------------------------
+# vps-admin — конфигурация
+# -----------------------------------------------------------------------------
+
+db_path: "/var/lib/vps-admin/stats.db"
+log_path: "/var/log/vps-admin/vps-admin.log"
+poll_interval: "5m"
+
+telegram:
+  token: "YOUR_BOT_TOKEN_HERE"
+  chat_id: 1234567890        # основной чат для отчётов и алертов (он же админ)
+  admins: []                 # доп. админы: [111111, 222222]
+  weekly_report: true        # еженедельная сводка по трафику в основной чат
+  weekly_cron: "0 10 * * 1"  # когда слать (cron, время сервера): пн, 10:00
+
+# Включение сбора и провижининга по сервисам.
+# provision: false — только сбор статистики, без регистрации пользователей.
+services:
+  xray:
+    enabled: true
+    provision: true
+  amneziawg:
+    enabled: true
+    provision: true
+  telemt:
+    enabled: true
+    provision: true
+
+# --- xray / 3x-ui -----------------------------------------------------------
+# flow не указываем — берётся из самого inbound при создании клиента.
+xray_3xui:
+  base_url: "http://127.0.0.1:2053"   # адрес веб-панели (как в браузере), тот же протокол
+  web_base_path: ""          # если у панели кастомный путь, напр. "panel"
+  api_token: ""              # ОБЯЗАТЕЛЬНО: 3x-ui → Settings → Security → API Token
+  inbound_id: 1              # ID inbound, куда добавлять клиентов при /register
+  sub_url: ""                # базовый URL подписки, напр. "https://vpn.example.com/sub" (опц.)
+  public_host: ""            # домен/IP сервера для vless-ссылок; пусто → берётся из sub_url.
+                             # Без него в ссылке будет localhost (панель дёргается по localhost).
+
+# --- AmneziaWG (через инбаунд панели 3x-ui) -----------------------------------
+# Клиенты создаются через API панели (userspace или kernel mode); ключи, IP и
+# обфускацию (AWG 2.0/3.1) генерирует и хранит панель — читаем в рантайме.
+# Инбаунд создаётся в панели: Add Inbound → AmneziaWG (порт, напр. 443/udp;
+# Kernel mode — опционально, требует модуля: x-ui install-awg-kernel).
+# 2.0-профиль задаётся вручную в форме инбаунда (очистить HeaderProtectionKey,
+# поправить H1-H4); автогенерация всегда делает 3.1.
+amneziawg_3xui:
+  base_url: "http://127.0.0.1:2053"   # адрес веб-панели (как в браузере)
+  web_base_path: ""                   # кастомный путь панели, напр. "panel"
+  api_token: ""                       # ОБЯЗАТЕЛЬНО: Settings → Security → API Token
+  inbound_id: 0                       # ID AmneziaWG-инбаунда
+  public_host: ""                     # домен/IP для Endpoint в конфигах; пусто →
+                                      # в конфиге останется localhost (панель дёргается
+                                      # по localhost). Порт — из самого инбаунда.
+
+# --- telemt (MTProto) -------------------------------------------------------
+# Хост/порт/домен FakeTLS не дублируем — telemt сам генерирует ссылки dd/ee
+# из своего config.toml. Нужен только адрес control-API ([server.api].listen)
+# и токен ([server.api].auth_header, если задан). Создание пользователя пишет
+# его в config.toml telemt (нужен writable-монтированный каталог конфига).
+telemt:
+  base_url: "http://127.0.0.1:9091"
+  admin_key: ""
+
+# Защита от ложного трафика при сбросе счётчиков (рестарт сервиса).
+counter_reset:
+  threshold_percent: 5.0
+
+prometheus:
+  port: 2112
+  enabled: true
+
+# Веб-панель: создание пользователей, статистика и настройки по сервисам.
+web:
+  enabled: true
+  listen: "127.0.0.1:8088"   # по умолчанию только localhost — открывайте через
+                              # SSH-туннель (ssh -L 8088:127.0.0.1:8088 root@host)
+                              # или reverse-proxy. Для внешнего адреса пароль обязателен.
+  login: "admin"             # логин входа (фиксированный, один; для менеджеров паролей)
+  password: ""               # пароль входа; пусто = без авторизации
+                              # (допустимо только на localhost)
+  tls:
+    enabled: false           # true → панель по HTTPS
+    cert_file: ""            # свой сертификат (cert+key); если пусто —
+    key_file: ""             # генерируется самоподписанный (браузер предупредит)
+    host: ""                 # домен/IP для самоподписанного серта (через запятую).
+                             # При listen 0.0.0.0 IP интерфейсов добавляются сами;
+                             # укажите здесь домен или внешний IP (если за NAT).

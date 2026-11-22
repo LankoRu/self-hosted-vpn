@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Мои подключения</title>
+<script>
+// Применяем тему до первой отрисовки — без мигания.
+(function(){
+  try{
+    var p = localStorage.getItem("vps-theme") || "system";
+    var t = p==="system"
+      ? (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : p;
+    document.documentElement.setAttribute("data-theme", t);
+  }catch(e){}
+})();
+</script>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1e242c; --line:#2a323c;
+    --text:#e6eaef; --muted:#8b96a5; --accent:#4f9cff; --accent2:#2b6fd6;
+    --code-bg:#0b0e12; --code-fg:#b9c6d6;
+    color-scheme:dark;
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef1f5; --line:#d8dee6;
+    --text:#1a2029; --muted:#5b6672; --accent:#2b6fd6; --accent2:#2b6fd6;
+    --code-bg:#f4f6f9; --code-fg:#334455;
+    color-scheme:light;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;gap:12px;flex-wrap:wrap;background:var(--bg)}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .sp{flex:1}
+  .wrap{max-width:760px;margin:0 auto;padding:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;
+    color:var(--muted);margin:0 0 12px}
+  .muted{color:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  button{font:inherit;background:var(--accent2);border:1px solid var(--accent2);color:#fff;
+    border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600}
+  .segs{display:flex;gap:6px;flex-wrap:wrap}
+  .segs button{padding:6px 12px;font-weight:500;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted)}
+  .segs button.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  .svc-title{display:flex;align-items:center;gap:8px;margin:16px 0 4px;font-weight:600}
+  .items{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:2px 12px;margin-top:8px}
+  .itemrow{padding:9px 0;border-bottom:1px solid var(--line)}
+  .itemrow:last-child{border-bottom:none}
+  .itemhead{display:flex;align-items:center;gap:8px}
+  .itemlabel{color:var(--muted);font-size:12px}
+  .itemhead .sp{flex:1}
+  .itemval{display:block;margin-top:6px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+    color:var(--code-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  a.itemval{color:var(--accent);text-decoration:none}
+  a.itemval:hover{text-decoration:underline}
+  .dl-link{display:inline-block;margin-top:8px;font:inherit;font-size:12px;color:var(--accent);
+    text-decoration:none;background:transparent;cursor:pointer;
+    border:1px solid var(--line);border-radius:6px;padding:7px 12px}
+  .dl-link:hover{border-color:var(--accent);background:transparent}
+  .ibtn{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;
+    padding:4px 6px;cursor:pointer;display:inline-flex;align-items:center;line-height:0}
+  .ibtn:hover{border-color:var(--accent);color:var(--accent)}
+  .ibtn svg{width:16px;height:16px;display:block}
+  details.rawcfg{margin-top:8px}
+  details.rawcfg summary{cursor:pointer;color:var(--muted);font-size:12px;padding:2px 0}
+  details.rawcfg pre{margin-top:6px;background:var(--code-bg);border:1px solid var(--line);
+    border-radius:8px;padding:12px;overflow:auto;max-height:260px;white-space:pre-wrap;
+    word-break:break-all;font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  .qrbox{margin-top:10px;text-align:center}
+  .qrbox img{width:220px;height:220px;background:#fff;padding:10px;border-radius:8px}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:8px;
+    opacity:0;transition:opacity .2s;z-index:40}
+  .toast.show{opacity:1}
+  .empty{color:var(--muted);padding:10px 0}
+  .ttable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .ttable th,.ttable td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .ttable th:first-child,.ttable td:first-child{text-align:left}
+  .ttable th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  .ttable td.b{font-weight:600}
+  .ttable tr.totalrow td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
+  @media (pointer:coarse){
+    .ibtn{padding:8px 10px}
+    .ibtn svg{width:18px;height:18px}
+    .segs button{padding:8px 12px}
+  }
+  @media (max-width:640px){
+    .wrap{padding:14px}
+    header{padding:12px 14px;gap:8px}
+    header h1{font-size:16px}
+    .card{padding:14px}
+    .ttable th,.ttable td{padding:6px 8px}
+    .qrbox img{width:min(220px,70vw);height:min(220px,70vw)}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ Мои подключения</h1>
+  <span class="muted" id="who"></span>
+  <span class="sp"></span>
+  <div class="segs" id="theme" title="Тема оформления">
+    <button data-t="light" title="Светлая">☀️</button>
+    <button data-t="dark" title="Тёмная">🌙</button>
+    <button data-t="system" title="Системная">🖥️</button>
+  </div>
+</header>
+
+<div class="wrap" id="content"><div class="empty">Загрузка…</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+// Токен берём из адреса: /p/<token>
+const TOKEN = location.pathname.replace(/^\/p\//, "").replace(/\/.*$/, "");
+
+const SVC_ORDER = {xray:0, amneziawg:1, telemt:2};
+// Без `??` и `?.` — встроенные браузеры (в т.ч. Telegram на старых Android)
+// не парсят ES2020, а синтаксическая ошибка уронила бы весь скрипт.
+function svcRank(s){ return SVC_ORDER[s] === undefined ? 99 : SVC_ORDER[s]; }
+const svcCmp = (a,b)=> svcRank(a)-svcRank(b) || String(a).localeCompare(String(b));
+
+const IC_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const IC_QR = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h3v3h-3v-3zm-5 0h3v3h-3v-3zm5 5h3v3h-3v-3zm-5 0h3v3h-3v-3z"/></svg>';
+const IC_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="8 8 12 4 16 8"/><line x1="12" y1="4" x2="12" y2="16"/></svg>';
+
+let itemMap = {}, itemSeq = 0;
+function regItem(value, file){ const id = "i"+(itemSeq++); itemMap[id] = {value, file: file||""}; return id; }
+function iconBtn(onclick, title, svg){
+  return `<button class="ibtn" title="${esc(title)}" onclick="${onclick}">${svg}</button>`;
+}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),1800);}
+function fmtBytes(b){
+  b = Number(b)||0;
+  if(b < 1024) return b + " B";
+  const u = ["KB","MB","GB","TB","PB"]; let i=-1;
+  do { b/=1024; i++; } while(b>=1024 && i<u.length-1);
+  return b.toFixed(2)+" "+u[i];
+}
+
+function copyValue(text){
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(()=>toast("Скопировано")).catch(()=>fallbackCopy(text));
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text){
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly","");
+  ta.style.position="fixed"; ta.style.left="-9999px"; ta.style.top="0";
+  document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch(e){ ok = false; }
+  document.body.removeChild(ta);
+  toast(ok ? "Скопировано" : "Не удалось — выделите вручную");
+}
+function copyItem(id){ copyValue(itemMap[id].value); }
+
+function toggleQR(id){
+  const box = document.getElementById("qr-"+id);
+  if(!box) return;
+  if(!box.firstChild){
+    const img = document.createElement("img");
+    img.src = "/api/qr?text=" + encodeURIComponent(itemMap[id].value);
+    img.alt = "QR"; box.appendChild(img);
+  }
+  box.style.display = box.style.display === "none" ? "block" : "none";
+}
+
+function isLink(v){ if(typeof v!=="string") return false; const t=v.trim(); return t.indexOf("\n")<0 && /^[a-z][a-z0-9+.-]*:\/\//i.test(t); }
+
+async function shareItem(id){
+  const {value, file} = itemMap[id];
+  if(isLink(value)){
+    if(navigator.share){
+      try { await navigator.share({title: file || "VPN", text: value}); return; }
+      catch(e){ if(e && e.name === "AbortError") return; }
+    }
+    copyValue(value);
+    return;
+  }
+  const blob = new Blob([value], {type: "text/plain"});
+  if(navigator.canShare){
+    try {
+      const f = new File([blob], file || "config.txt", {type: "text/plain"});
+      if(navigator.canShare({files:[f]})){ await navigator.share({files:[f], title: file}); return; }
+    } catch(e){ /* отменили или нельзя — падаем в скачивание */ }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = file || "config.txt";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+function itemsOf(o){
+  try { const a = JSON.parse(o.config || "[]"); return Array.isArray(a) ? a : []; }
+  catch(e){ return o.config ? [{label:"Конфиг", value:o.config}] : []; }
+}
+// Кликабельными делаем только известные схемы (никаких javascript:/data:).
+const SAFE_SCHEMES = /^(https?|vpn|vless|vmess|trojan|ss|ssr|tg|wireguard|amneziawg):/i;
+function isSafeLink(v){ return isLink(v) && SAFE_SCHEMES.test(v.trim()); }
+
+// https — открываем в новой вкладке; кастомные схемы (vpn://, tg://, vless://)
+// — в текущей, чтобы ОС передала ссылку приложению (Amnezia VPN, Telegram…).
+// rel=noreferrer, чтобы токен страницы не утёк во внешний сайт через Referer.
+function linkHtml(v){
+  const url = (v||"").trim();
+  const attrs = /^https?:/i.test(url)
+    ? ' target="_blank" rel="noopener noreferrer"'
+    : ' rel="noreferrer"';
+  return `<a class="itemval" href="${esc(url)}"${attrs}>${esc(url)}</a>`;
+}
+
+// Конфиг-файл отдаём как настоящую ссылку на скачивание: мобильная ОС предложит
+// открыть .conf в AmneziaWG, десктоп просто сохранит файл.
+function fileHtml(it, svc, i, iid){
+  const url = "/p/" + encodeURIComponent(TOKEN) + "/file?svc=" + encodeURIComponent(svc) + "&i=" + i;
+  return `<button class="dl-link" onclick="openInApp('${iid}','${url}')">📲&nbsp; Открыть в приложении</button>`;
+}
+
+// Отдать конфиг приложению. По манифесту Amnezia ловит ACTION_SEND с
+// text/plain и application/octet-stream — то есть файл попадает в приложение
+// именно через СИСТЕМНЫЙ «Поделиться», а не через скачивание (скачанный файл
+// просто ложится в «Загрузки» и сам никуда не открывается). Поэтому сначала
+// пробуем share-лист, и только если его нет — обычная загрузка с сервера.
+async function openInApp(id, url){
+  const it = itemMap[id];
+  if(navigator.canShare){
+    try {
+      const f = new File([it.value], it.file || "config.conf", {type: "text/plain"});
+      if(navigator.canShare({files:[f]})){
+        await navigator.share({files:[f], title: it.file});
+        return;
+      }
+    } catch(e){ if(e && e.name === "AbortError") return; }
+  }
+  location.href = url; // фолбэк: скачать файл с сервера
+}
+
+function renderItem(it, svc, i){
+  const iid = regItem(it.value, it.file);
+  const multiline = (it.value||"").indexOf("\n") >= 0;
+  const canShare = it.file || isLink(it.value);
+  const btns =
+    iconBtn(`copyItem('${iid}')`, "Копировать", IC_COPY) +
+    (it.qr ? iconBtn(`toggleQR('${iid}')`, "QR-код", IC_QR) : "") +
+    (canShare ? iconBtn(`shareItem('${iid}')`, isLink(it.value) ? "Поделиться ссылкой" : "Поделиться файлом", IC_SHARE) : "");
+  const body = multiline
+    ? `<details class="rawcfg"><summary>показать конфиг</summary><pre>${esc(it.value)}</pre></details>`
+      + (it.file ? fileHtml(it, svc, i, iid) : "")
+    : (isSafeLink(it.value) ? linkHtml(it.value) : `<code class="itemval">${esc(it.value)}</code>`);
+  const qr = it.qr ? `<div class="qrbox" id="qr-${iid}" style="display:none"></div>` : "";
+  return `<div class="itemrow">
+    <div class="itemhead"><span class="itemlabel">${esc(it.label)}</span><span class="sp"></span>${btns}</div>
+    ${body}${qr}</div>`;
+}
+function renderConfig(id){
+  const title = `<div class="svc-title">🔧 ${esc(id.service)}</div>`;
+  const items = itemsOf(id);
+  if(!items.length) return title + `<div class="empty">нет данных</div>`;
+  return title + `<div class="items">${items.map((it,i)=>renderItem(it, id.service, i)).join("")}</div>`;
+}
+
+function renderTraffic(t){
+  const pers = [["today","Сегодня"],["week","Неделя"],["month","Месяц"],["full","Всё время"]];
+  const svcSet = new Set();
+  pers.forEach(([p])=>((t[p]||{}).services||[]).forEach(s=>svcSet.add(s.service)));
+  const svcArr = [...svcSet].sort(svcCmp);
+  if(!svcArr.length) return `<div class="empty">Нет трафика.</div>`;
+  const cell = (p,svc)=>{
+    const found = ((t[p]||{}).services||[]).find(x=>x.service===svc);
+    return fmtBytes(found?found.bytes:0);
+  };
+  return `<div style="overflow-x:auto"><table class="ttable"><thead><tr><th>Сервис</th>`+
+    pers.map(([,l])=>`<th>${l}</th>`).join("")+`</tr></thead><tbody>`+
+    svcArr.map(svc=>`<tr><td>${esc(svc)}</td>`+
+      pers.map(([p])=>`<td class="b">${cell(p,svc)}</td>`).join("")+`</tr>`).join("")+
+    `<tr class="totalrow"><td>Всего</td>`+
+      pers.map(([p])=>`<td class="b">${fmtBytes((t[p]||{}).total||0)}</td>`).join("")+
+    `</tr></tbody></table></div>`;
+}
+
+async function load(){
+  let d;
+  try {
+    const r = await fetch("/p/"+encodeURIComponent(TOKEN)+"/data");
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || "Ссылка недействительна");
+    d = await r.json();
+  } catch(e){
+    $("#content").innerHTML = `<div class="card"><h2>Ссылка недоступна</h2>
+      <div class="empty">${esc(e.message)}</div></div>`;
+    return;
+  }
+  $("#who").textContent = d.display_name || "";
+  const ids = (d.identities||[]).slice().sort((a,b)=>svcCmp(a.service,b.service));
+  itemMap = {}; itemSeq = 0;
+  $("#content").innerHTML =
+    `<div class="card"><h2>Трафик</h2>${renderTraffic(d.traffic||{})}</div>` +
+    `<div class="card"><h2>Подключения</h2>` +
+      (ids.length ? ids.map(renderConfig).join("") : `<div class="empty">Нет настроек.</div>`) +
+    `</div>` +
+    `<div class="muted" style="text-align:center;font-size:12px">
+       Не пересылайте эту страницу посторонним — на ней ваши ключи доступа.</div>`;
+}
+
+// Тема. localStorage может быть НЕДОСТУПЕН (встроенный браузер Telegram,
+// приватный режим, запрет сторонних данных) — обращения к нему кидают
+// исключение, поэтому всё через безопасные обёртки.
+const THEME_KEY = "vps-theme";
+function storeGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function storeSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+
+function resolveTheme(pref){
+  if(pref === "system")
+    return (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+  return pref;
+}
+function applyTheme(){
+  const pref = storeGet(THEME_KEY) || "system";
+  document.documentElement.setAttribute("data-theme", resolveTheme(pref));
+  document.querySelectorAll("#theme button").forEach(b=>b.classList.toggle("on", b.dataset.t===pref));
+}
+$("#theme").addEventListener("click", e=>{
+  const t = e.target.dataset.t; if(!t) return;
+  storeSet(THEME_KEY, t);
+  applyTheme();
+});
+// Старые WebView не умеют addEventListener у MediaQueryList — там addListener.
+try {
+  const mq = window.matchMedia && matchMedia("(prefers-color-scheme: light)");
+  if(mq){
+    const onChange = ()=>{ if((storeGet(THEME_KEY)||"system") === "system") applyTheme(); };
+    if(mq.addEventListener) mq.addEventListener("change", onChange);
+    else if(mq.addListener) mq.addListener(onChange);
+  }
+} catch(e){}
+
+// Тема — вторична: что бы в ней ни сломалось, ключи должны загрузиться.
+try { applyTheme(); } catch(e){}
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+name: CI
+
+# Ветки: dev — разработка (только тесты), main — стабильные версии.
+# Push/merge в main → авто-релиз (patch-версия + бинари в Releases).
+# PR dev → main прогоняет тесты до merge.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+# Отменяем предыдущий запуск на той же ветке/PR, если пришёл новый push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build · vet · test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vendor/vps-admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/vps-admin/go.mod
+          cache-dependency-path: vendor/vps-admin/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Не отформатировано gofmt:"; echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race ./...
+
+      # Ровно тот бинарь, что уезжает на сервер: статический, linux/amd64, без cgo.
+      - name: build linux/amd64 (prod)
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/vps-admin ./cmd/vps-admin
+
+  # Авто-релиз: ТОЛЬКО на push в main (в т.ч. merge PR из dev) и только после
+  # зелёного build-test. Каждый push поднимает patch-версию (v0.1.0 → v0.1.1 …),
+  # ставит тег и публикует GitHub Release со статическими linux-бинарями
+  # (amd64+arm64), sha256sums.txt и авто-заметками из коммитов.
+  # Install.sh качает бинарь отсюда (releases/latest). На dev релизов нет.
+  release:
+    name: tag · release
+    needs: build-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # нужно для пуша тега и создания релиза
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # вся история и теги для расчёта версии
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/vps-admin/go.mod
+          cache-dependency-path: vendor/vps-admin/go.sum
+
+      # Если текущий коммит уже помечен тегом (повторный запуск) — пропускаем,
+      # чтобы не падать на «tag already exists».
+      - name: compute next version
+        id: ver
+        run: |
+          if git describe --exact-match --tags HEAD 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "HEAD уже помечен тегом — релиз пропускаем."
+            exit 0
+          fi
+          latest=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            v=${latest#v}; IFS=. read -r MA MI PA <<<"$v"
+            next="v${MA}.${MI}.$((PA+1))"
+          fi
+          echo "Следующая версия: $next (предыдущая: ${latest:-нет})"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: build release binaries
+        if: steps.ver.outputs.skip == 'false'
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cd vendor/vps-admin
+          for ARCH in amd64 arm64; do
+            GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w" \
+              -o "$GITHUB_WORKSPACE/dist/vps-admin-linux-$ARCH" ./cmd/vps-admin
+          done
+          ( cd "$GITHUB_WORKSPACE/dist" && sha256sum vps-admin-linux-* > sha256sums.txt )
+
+      - name: create tag and release
+        if: steps.ver.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/vps-admin-linux-amd64 \
+            dist/vps-admin-linux-arm64 \
+            dist/sha256sums.txt

@@ -1,0 +1,1280 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>vps-admin</title>
+<!-- PWA: панель ставится на телефон как приложение -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="vps-admin">
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
+<script>
+// Применяем тему до первой отрисовки — без мигания.
+(function(){
+  try{
+    var p = localStorage.getItem("vps-theme") || "system";
+    var t = p==="system"
+      ? (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+      : p;
+    document.documentElement.setAttribute("data-theme", t);
+  }catch(e){}
+})();
+</script>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1e242c; --line:#2a323c;
+    --text:#e6eaef; --muted:#8b96a5; --accent:#4f9cff; --accent2:#2b6fd6;
+    --green:#3fb950; --red:#f85149; --chip:#243040;
+    --code-bg:#0b0e12; --code-fg:#b9c6d6; --warn:#d29922;
+    color-scheme:dark;
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef1f5; --line:#d8dee6;
+    --text:#1a2029; --muted:#5b6672; --accent:#2b6fd6; --accent2:#2b6fd6;
+    --green:#1a7f37; --red:#d1242f; --chip:#e4e9f0;
+    --code-bg:#f4f6f9; --code-fg:#334455; --warn:#9a6700;
+    color-scheme:light;
+  }
+  *{box-sizing:border-box}
+  .maintabs{margin:0 0 16px}
+  .maintabs button{flex:1}
+  .viewtools{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .viewtools .segs{margin:0}
+  .hintq{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+    border-radius:50%;border:1px solid var(--line);background:var(--panel2);color:var(--muted);
+    font-size:11px;cursor:pointer;padding:0;vertical-align:middle;margin-left:6px}
+  .hintbody{display:none;color:var(--muted);font-size:12px;margin:6px 0;font-weight:400}
+  .hintbody.open{display:block}
+  details.acc{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel2)}
+  details.acc>summary{cursor:pointer;padding:10px 12px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px}
+  details.acc>summary::-webkit-details-marker{display:none}
+  details.acc>summary::before{content:"▸";color:var(--muted)}
+  details.acc[open]>summary::before{content:"▾"}
+  details.acc[open]>summary{border-bottom:1px solid var(--line)}
+  .accbody{padding:10px 12px}
+  .warnbtn{color:var(--warn);border-color:var(--warn)}
+  #userSearch{margin:10px 0}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--accent)}
+  header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .sp{flex:1}
+  .wrap{max-width:1100px;margin:0 auto;padding:22px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;
+    color:var(--muted);margin:0 0 12px}
+  .row{display:flex;justify-content:space-between;align-items:center;
+    padding:8px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .muted{color:var(--muted)}
+  .bytes{font-variant-numeric:tabular-nums;font-weight:600}
+  input,button,select,textarea{font:inherit}
+  input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:9px 11px;width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--accent2);border:1px solid var(--accent2);color:#fff;
+    border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600}
+  button:hover{background:var(--accent)}
+  button.ghost{background:transparent;border-color:var(--line);color:var(--text)}
+  button.ghost:hover{border-color:var(--accent)}
+  a.ghost{display:inline-block;background:transparent;border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:6px 12px;font-weight:600;font-size:13px;text-decoration:none;white-space:nowrap}
+  a.ghost:hover{border-color:var(--accent)}
+  #panellinks{display:contents}
+  button.danger{background:transparent;border-color:var(--red);color:var(--red)}
+  button.danger:hover{background:var(--red);color:#fff}
+  .chip{display:inline-block;background:var(--chip);color:var(--code-fg);border-radius:999px;
+    padding:2px 9px;font-size:12px;margin:0 4px 4px 0}
+  .userrow{cursor:pointer}
+  .userrow:hover{background:var(--panel2)}
+  .segs{display:flex;gap:6px;flex-wrap:wrap}
+  .segs button{padding:6px 12px;font-weight:500;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted)}
+  .segs button.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  .form-row{display:flex;gap:10px;margin-top:8px}
+  .form-row input{flex:1}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:flex-start;justify-content:center;padding:40px 16px;z-index:20;overflow:auto}
+  .overlay.show{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    width:100%;max-width:720px;padding:20px}
+  .modal h3{margin:0 0 2px;font-size:18px}
+  .cfgbox{position:relative;margin-top:8px}
+  .cfgbox pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+    padding:12px;overflow:auto;max-height:260px;margin:0;white-space:pre-wrap;
+    word-break:break-all;font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  .cfgbox .copy{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:12px}
+  .svc-title{display:flex;align-items:center;gap:8px;margin:16px 0 4px;font-weight:600}
+  .svc-title .regenbtn{margin-left:auto;font-size:12px;padding:4px 10px;white-space:nowrap;font-weight:500}
+  .links{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:4px 12px;margin-top:8px}
+  .linkrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .linkrow:last-child{border-bottom:none}
+  .linklbl{flex:0 0 auto;min-width:78px;color:var(--muted);font-size:12px}
+  .linkurl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--code-fg)}
+  .linkrow .copy,.linkrow .dl{flex:0 0 auto;padding:4px 10px;font-size:12px;text-decoration:none;
+    display:inline-block;line-height:1.6}
+  details.rawcfg{margin-top:8px}
+  details.rawcfg summary{cursor:pointer;color:var(--muted);font-size:12px;padding:2px 0}
+  details.rawcfg pre{margin-top:6px}
+  /* item rows (variants of a service) */
+  .items{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:2px 12px;margin-top:8px}
+  .itemrow{padding:9px 0;border-bottom:1px solid var(--line)}
+  .itemrow:last-child{border-bottom:none}
+  .itemhead{display:flex;align-items:center;gap:8px}
+  .itemlabel{color:var(--muted);font-size:12px}
+  .itemhead .sp{flex:1}
+  .itemval{display:block;margin-top:6px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+    color:var(--code-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ibtn{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:6px;
+    padding:4px 6px;cursor:pointer;display:inline-flex;align-items:center;line-height:0}
+  .ibtn:hover{border-color:var(--accent);color:var(--accent)}
+  .ibtn svg{width:16px;height:16px;display:block}
+  /* Признак активности: точка + «был N назад» */
+  .act{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);
+    white-space:nowrap}
+  .act .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+  .act.on{color:var(--green)}
+  .act.on .dot{background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 25%,transparent)}
+  .act.never .dot{background:transparent;border:1px solid var(--line)}
+  /* Заголовок карточки: имя + кнопка переименования / поле ввода */
+  .uname{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .uname input{font-size:16px;font-weight:600;padding:6px 8px;border-radius:6px;
+    width:220px;max-width:100%}
+  .qrbox{margin-top:10px;text-align:center}
+  .qrbox img{width:220px;height:220px;background:#fff;padding:10px;border-radius:8px}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:8px;
+    opacity:0;transition:opacity .2s;z-index:40}
+  .toast.show{opacity:1}
+  .close{cursor:pointer;color:var(--muted);font-size:22px;line-height:1;background:none;border:none}
+  .empty{color:var(--muted);padding:10px 0}
+  .warn{margin-top:10px;font-size:12px;line-height:1.45;color:var(--muted);
+    border-left:3px solid var(--red);padding:6px 0 6px 10px}
+  .total{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;font-weight:700}
+  .ttable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .ttable th,.ttable td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .ttable th:first-child,.ttable td:first-child{text-align:left}
+  .ttable th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  .ttable td.b{font-weight:600}
+  .ttable tr.totalrow td{font-weight:700;border-top:2px solid var(--line);border-bottom:none}
+  /* Графики */
+  .chart-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex-wrap:wrap;margin-bottom:12px}
+  .chart-svg{width:100%;height:auto;display:block;overflow:visible;touch-action:pan-y}
+  .chart-grid{stroke:var(--line)}
+  .chart-axis{fill:var(--muted);font-size:10px}
+  .chart-legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:12px}
+  .chart-legend .lg{display:flex;align-items:center;gap:6px;font-size:12px;
+    padding:2px 6px;margin:0 -6px;border-radius:6px}
+  .chart-legend .lg.clickable{cursor:pointer;user-select:none}
+  .chart-legend .lg.clickable:hover{background:var(--panel2)}
+  .chart-legend .lg.off{opacity:.45}
+  .chart-legend .lg.off .lgn{text-decoration:line-through}
+  .chart-legend .lg.reset{color:var(--muted)}
+  .chart-legend .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .chart-legend .lgv{color:var(--muted);font-variant-numeric:tabular-nums}
+  .chart-tip{position:fixed;pointer-events:none;z-index:50;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;
+    box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;max-width:260px}
+  .chart-tip .tt{font-weight:600;margin-bottom:4px}
+  .chart-tip .tr{display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .chart-tip .tr .lgv{margin-left:auto;padding-left:12px;font-variant-numeric:tabular-nums}
+  /* Ресурсы сервера */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
+  .metric .k{color:var(--muted);font-size:12px}
+  .metric .v{font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+  .bar{height:6px;background:var(--panel2);border-radius:999px;overflow:hidden;margin-top:6px}
+  .bar>i{display:block;height:100%;background:var(--accent2);border-radius:999px;transition:width .4s}
+  /* Меню в шапке: на десктопе в строку, на мобильном — выпадающее по ☰ */
+  #hdrtools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  #burger{display:none;padding:6px 12px;font-size:16px;line-height:1.2}
+  /* Тач-устройства: комфортные размеры для нажатия */
+  @media (pointer:coarse){
+    .ibtn{padding:8px 10px}
+    .ibtn svg{width:18px;height:18px}
+    .segs button{padding:8px 12px}
+    .chart-legend .lg{padding:6px}
+    .linkrow .copy,.linkrow .dl{padding:8px 12px}
+    .close{font-size:26px;padding:0 6px}
+  }
+  /* Узкие экраны (мобильные) */
+  @media (max-width:640px){
+    .wrap{padding:14px}
+    header{padding:12px 14px;gap:8px}
+    header h1{font-size:16px}
+    /* Кнопки не расползаются по шапке — прячем их в выпадающее меню */
+    #burger{display:inline-flex}
+    #hdrtools{display:none;position:absolute;top:100%;left:0;right:0;
+      background:var(--panel);border-bottom:1px solid var(--line);padding:12px 14px;
+      flex-direction:column;align-items:stretch;gap:10px;z-index:6;
+      box-shadow:0 10px 24px rgba(0,0,0,.35)}
+    #hdrtools.open{display:flex}
+    #hdrtools .segs{width:100%}
+    #hdrtools .segs button{flex:1}
+    #logout{width:100%}
+    #panellinks a{width:100%;text-align:center}
+    .card{padding:14px}
+    .card h2{margin-bottom:10px}
+    .form-row{flex-direction:column;gap:8px}
+    .form-row input,.form-row button{width:100%;flex:0 0 auto}
+    .overlay{padding:10px 8px}
+    .modal{padding:16px;border-radius:12px}
+    .ttable th,.ttable td{padding:6px 8px}
+    .qrbox img{width:min(220px,70vw);height:min(220px,70vw)}
+    .segs{gap:5px}
+    .linkrow{flex-wrap:wrap}
+    .linklbl{min-width:0}
+    .linkurl{flex:1 1 100%;order:3;white-space:normal;word-break:break-all}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ vps-admin</h1>
+  <span class="sp"></span>
+  <button class="ghost" id="burger" title="Меню" aria-label="Меню">☰</button>
+  <div id="hdrtools">
+    <div class="segs" id="theme" title="Тема оформления">
+      <button data-t="light" title="Светлая">☀️</button>
+      <button data-t="dark" title="Тёмная">🌙</button>
+      <button data-t="system" title="Системная">🖥️</button>
+    </div>
+    <span id="panellinks"></span>
+    <button class="ghost" id="logout" title="Выйти" style="display:none;padding:6px 12px">Выйти</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="segs maintabs" id="mainTabs">
+    <button data-v="overview" class="on">Обзор</button>
+    <button data-v="users">Пользователи</button>
+    <button data-v="system">Система</button>
+  </div>
+
+  <div id="view-overview">
+    <div class="viewtools" id="ovTools">
+      <div class="segs" id="periods">
+        <button data-p="today">Сегодня</button>
+        <button data-p="week">Неделя</button>
+        <button data-p="month" class="on">Месяц</button>
+        <button data-p="full">Всё</button>
+      </div>
+      <span class="muted" id="totalHdr"></span>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Трафик по сервисам</h2>
+        <div id="services"></div>
+      </div>
+      <div class="card">
+        <h2>Топ пользователей</h2>
+        <div id="topusers"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="chart-head">
+        <h2 style="margin:0">Графики трафика</h2>
+        <div class="segs" id="chartTabs">
+          <button data-c="overall" class="on">Общий</button>
+          <button data-c="services">Сервисы</button>
+          <button data-c="users">Пользователи</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+    </div>
+  </div>
+
+  <div id="view-users" style="display:none">
+    <div class="card">
+      <div class="chart-head">
+        <h2 style="margin:0">Пользователи <span class="muted" style="font-size:12px;font-weight:400">· трафик за всё время</span></h2>
+        <button class="ghost" id="createToggle" style="flex:0 0 auto">＋ Создать</button>
+      </div>
+      <div id="createForm" style="display:none;margin-top:10px">
+        <div class="form-row">
+          <input id="newDisplay" placeholder="имя, напр. Вася Пупкин">
+          <button id="createBtn" style="flex:0 0 auto">Создать во всех сервисах</button>
+        </div>
+        <div class="muted" style="margin-top:6px;font-size:12px">Логин генерируется из имени автоматически (транслит)
+          <button class="hintq" onclick="this.nextElementSibling.classList.toggle('open')">?</button>
+          <div class="hintbody">Пользователь заводится сразу во всех сервисах — трафик считается суммарно. При коллизии логина добавляется -2/-3.</div>
+        </div>
+      </div>
+      <input id="userSearch" placeholder="поиск по имени или логину" autocomplete="off">
+      <div id="users"></div>
+    </div>
+  </div>
+
+  <div id="view-system" style="display:none">
+    <div class="card" id="syscard" style="display:none;margin-bottom:16px">
+      <h2>Ресурсы сервера</h2>
+      <div id="sysbody"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="chart-head">
+        <h2 style="margin:0">Подключения <span class="muted" style="font-size:12px;font-weight:400">· антиблокировка</span></h2>
+        <button class="ghost" id="connToggle" onclick="toggleConnections()">Показать</button>
+      </div>
+      <div id="connBody" style="display:none"></div>
+    </div>
+
+    <div class="card" id="maintcard" style="display:none">
+      <h2 style="margin:0">Обслуживание
+        <button class="hintq" onclick="this.nextElementSibling.classList.toggle('open')">?</button>
+        <div class="hintbody">Массовая перегенерация выпускает новые ключи/ссылки всем клиентам сервиса. Нужна, когда сменились серверные параметры (например, обфускация AmneziaWG). Старые конфиги перестанут работать — клиентам потребуется прислать новые.</div>
+      </h2>
+      <div id="maint" class="form-row" style="flex-wrap:wrap;margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal"></div>
+</div>
+<div class="toast" id="toast"></div>
+<div class="chart-tip" id="chartTip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let period = "month";
+
+function fmtBytes(b){
+  b = Number(b)||0;
+  if(b < 1024) return b + " B";
+  const u = ["KB","MB","GB","TB","PB"]; let i=-1;
+  do { b/=1024; i++; } while(b>=1024 && i<u.length-1);
+  return b.toFixed(2)+" "+u[i];
+}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+// Признак активности. Сбор идёт раз в 5 минут, поэтому «активен сейчас» —
+// это трафик за последние ONLINE_MIN минут (два сбора с запасом).
+const ONLINE_MIN = 11;
+function activity(iso){
+  if(!iso) return {cls:"never", text:"нет активности", title:"Трафика не было ни разу"};
+  const t = new Date(iso), min = Math.floor((Date.now()-t)/60000);
+  const when = t.toLocaleString();
+  if(min < ONLINE_MIN) return {cls:"on", text:"активен", title:"Последний трафик: "+when};
+  let ago;
+  if(min < 60) ago = min+" мин";
+  else if(min < 1440) ago = Math.floor(min/60)+" ч";
+  else ago = Math.floor(min/1440)+" дн";
+  return {cls:"", text:ago+" назад", title:"Последний трафик: "+when};
+}
+// actHtml — готовая разметка индикатора (точка + подпись).
+function actHtml(iso){
+  const a = activity(iso);
+  return `<span class="act ${a.cls}" title="${esc(a.title)}"><span class="dot"></span>${esc(a.text)}</span>`;
+}
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),1800);}
+
+async function api(method, path, body){
+  const opt = {method, headers:{}};
+  if(body){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(body);}
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.error || ("HTTP "+r.status));
+  return data;
+}
+
+async function loadOverview(){
+  const d = await api("GET", "/api/overview?period="+period);
+  $("#totalHdr").textContent = "Σ " + fmtBytes(d.total);
+  const svc = (d.services||[]).sort((a,b)=>b.bytes-a.bytes);
+  $("#services").innerHTML = svc.length ? svc.map(s=>
+    `<div class="row"><span>🔹 ${esc(s.service)}</span><span class="bytes">${fmtBytes(s.bytes)}</span></div>`
+  ).join("") : `<div class="empty">Нет данных за период.</div>`;
+  const us = (d.users||[]).sort((a,b)=>b.bytes-a.bytes).slice(0,10);
+  $("#topusers").innerHTML = us.length ? us.map((u,i)=>
+    `<div class="row"><span>${i+1}. ${esc(u.service)}</span><span class="bytes">${fmtBytes(u.bytes)}</span></div>`
+  ).join("") : `<div class="empty">Нет данных за период.</div>`;
+  $("#logout").style.display = d.auth ? "" : "none"; // кнопка выхода — только если задан пароль
+  // ссылки на админки других сервисов (из авторизованного overview)
+  $("#panellinks").innerHTML = (d.panels||[]).map(p=>
+    `<a class="ghost" href="${esc(p.url)}" target="_blank" rel="noopener" title="Открыть в новой вкладке">${esc(p.label)} ↗</a>`
+  ).join("");
+  renderMaint(d.provisioners||[]);
+}
+
+// renderMaint — кнопки массовой перегенерации по каждому сервису с провижинингом.
+function renderMaint(provisioners){
+  const svcs = provisioners.slice().sort(svcCmp);
+  const card = $("#maintcard");
+  if(!svcs.length){ card.style.display = "none"; return; }
+  card.style.display = "";
+  $("#maint").innerHTML = svcs.map(svc=>
+    `<button class="ghost warnbtn" style="flex:0 0 auto" onclick="regenAll('${esc(svc)}')">↻ Перегенерировать все · ${esc(svc)}</button>`
+  ).join("");
+}
+
+// regenAll выпускает новые конфиги всем клиентам одного сервиса.
+async function regenAll(service){
+  if(!confirm("Перегенерировать конфиги «"+service+"» ВСЕМ клиентам?\n\n"+
+    "Старые ключи/ссылки перестанут работать — каждому клиенту нужно будет прислать новые.")) return;
+  let d;
+  try { d = await api("POST", "/api/regenerate-all", {service}); }
+  catch(e){ toast(e.message); return; }
+  const fails = (d.results||[]).filter(r=>!r.ok);
+  if(fails.length){
+    toast("Готово: "+d.ok+"/"+d.total+". Ошибки: "+fails.map(f=>esc(f.username)).join(", "));
+  } else {
+    toast("Перегенерировано конфигов «"+service+"»: "+d.ok+"/"+d.total);
+  }
+  refresh();
+}
+
+function fmtUptime(sec){
+  sec = Number(sec)||0;
+  const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600), m = Math.floor(sec%3600/60);
+  return d ? `${d}д ${h}ч` : (h ? `${h}ч ${m}м` : `${m}м`);
+}
+
+// Ресурсы сервера. На не-Linux (available=false) карточка просто скрыта.
+async function loadSystem(){
+  let d;
+  try { d = await api("GET", "/api/system"); } catch(e){ return; }
+  const s = d.system || {};
+  if(!s.available){ $("#syscard").style.display = "none"; return; }
+  $("#syscard").style.display = "";
+  const pct = (u,t)=> t ? Math.round(u/t*100) : 0;
+  const bar = p => `<div class="bar"><i style="width:${Math.min(p,100)}%${p>85?";background:var(--red)":""}"></i></div>`;
+  const cpu = s.cpu_percent||0, memP = pct(s.mem_used,s.mem_total), dskP = pct(s.disk_used,s.disk_total);
+  $("#sysbody").innerHTML = `<div class="metrics">
+    <div class="metric"><div class="k">CPU</div><div class="v">${cpu.toFixed(0)}%</div>${bar(cpu)}
+      <div class="k" style="margin-top:5px">LA ${(s.load1||0).toFixed(2)} · ядер: ${s.cores||0}</div></div>
+    <div class="metric"><div class="k">Память</div>
+      <div class="v">${fmtBytes(s.mem_used)} / ${fmtBytes(s.mem_total)}</div>${bar(memP)}
+      <div class="k" style="margin-top:5px">${memP}% занято</div></div>
+    <div class="metric"><div class="k">Диск (/)</div>
+      <div class="v">${fmtBytes(s.disk_used)} / ${fmtBytes(s.disk_total)}</div>${bar(dskP)}
+      <div class="k" style="margin-top:5px">${dskP}% занято</div></div>
+    <div class="metric"><div class="k">Аптайм</div><div class="v">${fmtUptime(s.uptime)}</div>
+      <div class="k" style="margin-top:5px">БД: ${fmtBytes(d.db_size)}</div></div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Графики трафика (инлайн-SVG, без внешних библиотек)
+// ---------------------------------------------------------------------------
+let chartView = "overall";
+let chartData = null;
+
+// Палитра: у сервисов фиксированные цвета, остальным — по кругу.
+const SVC_COLOR = {xray:"#4f9cff", amneziawg:"#3fb950", telemt:"#d29922"};
+const PALETTE = ["#4f9cff","#3fb950","#d29922","#f778ba","#a371f7","#f85149",
+  "#39c5cf","#db6d28","#8ddb8c","#79c0ff"];
+function colorFor(name, i){ return SVC_COLOR[name] || PALETTE[i % PALETTE.length]; }
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs){
+  const e = document.createElementNS(SVGNS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+// tz — смещение браузера (минуты к востоку от UTC): графики показываем в местном
+// времени зрителя, а хранение остаётся в UTC.
+const TZ_MIN = -new Date().getTimezoneOffset();
+
+async function loadCharts(){
+  try { chartData = await api("GET", "/api/charts?period="+period+"&tz="+TZ_MIN); }
+  catch(e){ return; }
+  renderChart();
+}
+
+// seriesFor — серии выбранного разреза из ответа charts.
+function seriesFor(view, data){
+  if(view === "overall") return [{name:"Всего", data:data.overall||[], color:"#4f9cff"}];
+  return (data[view]||[]).map((s,i)=>({name:s.name, data:s.data, total:s.total, color:colorFor(s.name,i)}));
+}
+
+function renderChart(){
+  const box = $("#chart");
+  if(!chartData){ box.innerHTML = ""; return; }
+  // Ключ с разрезом: у «Сервисов» и «Пользователей» свои скрытые серии.
+  drawStacked(box, chartData.labels||[], seriesFor(chartView, chartData), "main:"+chartView);
+}
+
+// Скрытые серии графика: ключ графика → Set имён. Живёт между перерисовками —
+// иначе автообновление раз в 15с сбрасывало бы выбранную серию.
+const chartHidden = {};
+function hiddenOf(key){ return chartHidden[key] || (chartHidden[key] = new Set()); }
+
+// drawStacked — стек-график площадей по времени (для 1 серии — просто площадь).
+// key задаёт, где хранить скрытые серии (по умолчанию id контейнера).
+function drawStacked(box, labels, series, key){
+  key = key || box.id;
+  box.innerHTML = ""; // рисуем с нуля: иначе при перерисовке графики дублируются
+  const n = labels.length;
+  if(!n || !series.length){ box.innerHTML = `<div class="empty">Нет данных за период.</div>`; return; }
+  const hidden = hiddenOf(key);
+  const vis = series.filter(s=>!hidden.has(s.name)); // на полотне — только видимые
+  const W = 800, H = 260, padL = 56, padR = 12, padT = 10, padB = 22;
+  const plotW = W-padL-padR, plotH = H-padT-padB;
+
+  // Стек: суммарная высота по каждому бакету.
+  const totals = new Array(n).fill(0);
+  vis.forEach(s=> s.data.forEach((v,i)=> totals[i]+=(+v||0)));
+  let max = Math.max(...totals, 1);
+  max = niceMax(max);
+
+  const x = i => padL + (n===1 ? plotW/2 : i*plotW/(n-1));
+  const y = v => padT + plotH - (v/max)*plotH;
+
+  const svg = el("svg", {class:"chart-svg", viewBox:`0 0 ${W} ${H}`, preserveAspectRatio:"none"});
+
+  // Сетка Y + подписи.
+  for(let g=0; g<=2; g++){
+    const val = max*g/2, yy = y(val);
+    svg.appendChild(el("line", {class:"chart-grid", x1:padL, y1:yy, x2:W-padR, y2:yy, "stroke-width":1, opacity:g?0.5:1}));
+    const t = el("text", {class:"chart-axis", x:padL-6, y:yy+3, "text-anchor":"end"});
+    t.textContent = fmtBytes(val); svg.appendChild(t);
+  }
+  // Подписи X (до ~7 штук).
+  const step = Math.max(1, Math.ceil(n/7));
+  for(let i=0;i<n;i+=step){
+    const t = el("text", {class:"chart-axis", x:x(i), y:H-6, "text-anchor":"middle"});
+    t.textContent = labels[i]; svg.appendChild(t);
+  }
+
+  // Полигоны стека снизу вверх.
+  const lower = new Array(n).fill(0);
+  vis.forEach(s=>{
+    const upper = lower.map((lo,i)=> lo + (+s.data[i]||0));
+    let d = "";
+    for(let i=0;i<n;i++) d += (i?"L":"M")+x(i)+" "+y(upper[i])+" ";
+    for(let i=n-1;i>=0;i--) d += "L"+x(i)+" "+y(lower[i])+" ";
+    d += "Z";
+    svg.appendChild(el("path", {d, fill:s.color, "fill-opacity":0.85, stroke:s.color, "stroke-width":1}));
+    s._upper = upper.slice();
+    for(let i=0;i<n;i++) lower[i]=upper[i];
+  });
+
+  // Курсор + перехват мыши для тултипа.
+  const cursor = el("line", {x1:0,y1:padT,x2:0,y2:padT+plotH, stroke:"var(--muted)","stroke-width":1, opacity:0});
+  svg.appendChild(cursor);
+  const hit = el("rect", {x:padL, y:padT, width:plotW, height:plotH, fill:"transparent"});
+  svg.appendChild(hit);
+  attachTip(svg, hit, cursor, {n, x, labels, series: vis});
+
+  box.appendChild(svg);
+  box.appendChild(legend(series, hidden, ()=>drawStacked(box, labels, series, key)));
+}
+
+// legend — подписи серий. Если серий больше одной, они кликабельны (как в Grafana):
+// обычный клик оставляет на графике только эту серию, повторный по ней же —
+// возвращает все; Ctrl/⌘/Shift+клик прячет или показывает одну. redraw
+// перерисовывает график после изменения набора.
+function legend(series, hidden, redraw){
+  const box = document.createElement("div");
+  box.className = "chart-legend";
+  const many = series.length > 1;
+  series.forEach(s=>{
+    const row = document.createElement("div");
+    row.className = "lg" + (hidden.has(s.name) ? " off" : "") + (many ? " clickable" : "");
+    const tot = (s.total!=null) ? ` <span class="lgv">${fmtBytes(s.total)}</span>` : "";
+    row.innerHTML = `<span class="sw" style="background:${s.color}"></span>` +
+      `<span class="lgn">${esc(s.name)}</span>${tot}`;
+    if(many){
+      row.title = "Клик — только эта серия, Ctrl/⌘+клик — скрыть/показать";
+      row.onclick = e => { toggleSeries(series, hidden, s.name, e.ctrlKey||e.metaKey||e.shiftKey); redraw(); };
+    }
+    box.appendChild(row);
+  });
+  if(hidden.size){
+    const r = document.createElement("div");
+    r.className = "lg reset clickable";
+    r.textContent = "↺ показать все";
+    r.onclick = ()=>{ hidden.clear(); redraw(); };
+    box.appendChild(r);
+  }
+  return box;
+}
+
+// toggleSeries меняет набор скрытых серий: single (Ctrl/⌘) — переключить одну,
+// иначе изоляция. Полностью пустой график не оставляем.
+function toggleSeries(series, hidden, name, single){
+  const names = series.map(s=>s.name);
+  if(single){
+    hidden.has(name) ? hidden.delete(name) : hidden.add(name);
+    if(hidden.size === names.length) hidden.clear();
+    return;
+  }
+  const shown = names.filter(nm=>!hidden.has(nm));
+  if(shown.length === 1 && shown[0] === name){ hidden.clear(); return; } // уже изолирована
+  hidden.clear();
+  names.forEach(nm=>{ if(nm !== name) hidden.add(nm); });
+}
+
+// niceMax округляет верх шкалы до «красивого» значения (1/2/5 × 10^k).
+function niceMax(v){
+  if(v<=0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v/p;
+  const nf = f<=1?1 : f<=2?2 : f<=5?5 : 10;
+  return nf*p;
+}
+
+// attachTip рисует тултип с разбивкой по наведённому бакету/столбцу.
+function attachTip(svg, hit, cursor, ctx){
+  const tip = $("#chartTip");
+  const idxFromEvent = e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * 800; // в координатах viewBox
+    let best = 0, bd = Infinity;
+    for(let i=0;i<ctx.n;i++){ const d = Math.abs(ctx.x(i)-px); if(d<bd){bd=d;best=i;} }
+    return best;
+  };
+  const show = e => {
+    const i = idxFromEvent(e);
+    const title = ctx.labels[i];
+    const rows = ctx.series.map(s=>({name:s.name, color:s.color, v:+s.data[i]||0})).filter(r=>r.v>0);
+    if(cursor){ cursor.setAttribute("x1", ctx.x(i)); cursor.setAttribute("x2", ctx.x(i)); cursor.setAttribute("opacity", 0.6); }
+    if(!rows.length){ tip.style.display="none"; return; }
+    const sum = rows.reduce((a,r)=>a+r.v,0);
+    tip.innerHTML = `<div class="tt">${esc(title)} · ${fmtBytes(sum)}</div>` +
+      rows.map(r=>`<div class="tr"><span class="sw" style="background:${r.color}"></span>${esc(r.name)}<span class="lgv">${fmtBytes(r.v)}</span></div>`).join("");
+    tip.style.display = "block";
+    const tw = tip.offsetWidth;
+    let left = e.clientX + 14; if(left+tw > innerWidth-8) left = e.clientX - tw - 14;
+    tip.style.left = Math.max(8,left)+"px";
+    tip.style.top = Math.min(e.clientY+14, innerHeight-tip.offsetHeight-8)+"px";
+  };
+  const hide = ()=>{ tip.style.display="none"; if(cursor) cursor.setAttribute("opacity",0); };
+  hit.addEventListener("mousemove", show);
+  hit.addEventListener("mouseleave", hide);
+  hit.addEventListener("touchstart", e=>{ show(e.touches[0]); }, {passive:true});
+  hit.addEventListener("touchmove", e=>{ show(e.touches[0]); }, {passive:true});
+  hit.addEventListener("touchend", hide);
+}
+
+// Список пользователей — управленческий: трафик всегда за всё время (стабильная
+// цифра), анализ по периодам — на Обзоре и в матрице карточки юзера.
+let lastUsers = [];
+
+async function loadUsers(){
+  lastUsers = await api("GET", "/api/users?period=full");
+  renderUsers();
+}
+
+function renderUsers(){
+  const q = ((document.getElementById("userSearch")||{}).value||"").trim().toLowerCase();
+  const users = lastUsers.filter(u=>!q ||
+    (u.display_name||"").toLowerCase().includes(q) || (u.username||"").toLowerCase().includes(q));
+  if(!users.length){ $("#users").innerHTML = `<div class="empty">${lastUsers.length?"Никого не найдено.":"Пользователей пока нет."}</div>`; return; }
+  $("#users").innerHTML = users.map(u=>`
+    <div class="row userrow" onclick="openUser('${esc(u.username)}')">
+      <span><b>${esc(u.display_name)}</b> <span class="muted mono">${esc(u.username)}</span><br>
+        ${(u.services||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join("")||'<span class="muted">нет сервисов</span>'}</span>
+      <span style="text-align:right"><span class="bytes">${fmtBytes(u.total_bytes)}</span><br>${actHtml(u.last_seen)}</span>
+    </div>`).join("");
+}
+
+async function openUser(username){
+  let d;
+  try { d = await api("GET", "/api/users/"+encodeURIComponent(username)); }
+  catch(e){ toast(e.message); return; }
+  const ids = d.identities||[];
+  const t = d.traffic||{};
+  // Матрица «сервис × период»: трафик по каждому сервису + строка «Всего».
+  const pers = [["today","Сегодня"],["week","Неделя"],["month","Месяц"],["full","Всё время"]];
+  const svcSet = new Set();
+  pers.forEach(([p])=>((t[p]||{}).services||[]).forEach(s=>svcSet.add(s.service)));
+  ids.forEach(id=>svcSet.add(id.service)); // сервис без трафика тоже показываем — со статусом
+  const svcArr = [...svcSet].sort(svcCmp);
+  const act = d.activity||{};
+  const cell = (p,svc)=>{
+    const found = ((t[p]||{}).services||[]).find(x=>x.service===svc);
+    return fmtBytes(found?found.bytes:0);
+  };
+  let trafHtml;
+  if(svcArr.length===0){
+    trafHtml = `<div class="empty">Нет трафика.</div>`;
+  } else {
+    trafHtml = `<div style="overflow-x:auto"><table class="ttable"><thead><tr><th>Сервис</th>`+
+      pers.map(([,l])=>`<th>${l}</th>`).join("")+`<th>Активность</th></tr></thead><tbody>`+
+      svcArr.map(svc=>`<tr><td>${esc(svc)}</td>`+
+        pers.map(([p])=>`<td class="b">${cell(p,svc)}</td>`).join("")+
+        `<td>${actHtml(act[svc])}</td></tr>`).join("")+
+      `<tr class="totalrow"><td>Всего</td>`+
+        pers.map(([p])=>`<td class="b">${fmtBytes((t[p]||{}).total||0)}</td>`).join("")+
+        `<td>${actHtml(d.last_seen)}</td>`+
+      `</tr></tbody></table></div>`;
+  }
+
+  resetItems();
+  // Конфиги — наверх, аккордеоном по сервисам: главное в карточке — ссылки.
+  const bySvc = {};
+  ids.forEach(id=>{ (bySvc[id.service] = bySvc[id.service]||[]).push(id); });
+  const cfgHtml = Object.keys(bySvc).sort(svcCmp).map((svc,i)=>{
+    const group = bySvc[svc].slice().sort((a,b)=>a.identity.length-b.identity.length || a.identity.localeCompare(b.identity));
+    const inner = group.map(id=>renderConfig(id, d.user.username, true)).join("");
+    const devForm = svc==="amneziawg" ? `
+      <div class="row" style="border:none;padding:4px 0;gap:8px">
+        <input id="devName" placeholder="устройство, напр. ноутбук" autocomplete="off" style="flex:1"
+          onkeydown="if(event.key==='Enter')addDevice('${esc(d.user.username)}')">
+        <button class="ghost" style="flex:0 0 auto" onclick="addDevice('${esc(d.user.username)}')">＋ Устройство</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin:0 0 8px">Отдельный конфиг на каждое устройство (один ключ параллельно нельзя)
+        <button class="hintq" onclick="this.nextElementSibling.classList.toggle('open')">?</button>
+        <div class="hintbody">WireGuard не поддерживает одновременное подключение с двух устройств с одним ключом (roaming + один туннельный IP). Трафик всех устройств суммируется на пользователя.</div>
+      </div>` : "";
+    return `<details class="acc"${i===0?" open":""}><summary>${svcIcon(svc)} ${esc(svc)}${group.length>1?` <span class="muted" style="font-weight:400">· ${group.length}</span>`:""}</summary>
+      <div class="accbody">${devForm}${inner}</div></details>`;
+  }).join("") || `<div class="empty">Нет настроек по сервисам.</div>`;
+
+  cardUser = d.user; // кто открыт в карточке (для переименования)
+  $("#modal").innerHTML = `
+    <div class="row" style="border:none;padding-top:0">
+      <div id="uTitle">
+        <div class="uname"><h3>${esc(d.user.display_name)}</h3>
+          <button class="ibtn" title="Переименовать" onclick="startRename()">${IC_EDIT}</button>
+          ${actHtml(d.last_seen)}</div>
+        <span class="muted mono">${esc(d.user.username)}</span></div>
+      <button class="close" onclick="closeModal()">×</button>
+    </div>
+    <h2 style="color:var(--muted);font-size:13px;text-transform:uppercase;margin:14px 0 6px">Конфиги</h2>
+    ${cfgHtml}
+    <details class="acc" id="uStats" ontoggle="onUserStatsToggle('${esc(d.user.username)}', this)">
+      <summary>📊 Трафик и графики</summary>
+      <div class="accbody">
+        ${trafHtml}
+        <div class="itemlabel" style="margin:12px 0 2px">Суммарный трафик по времени</div>
+        <div id="uOverall"></div>
+        <div class="itemlabel" style="margin:14px 0 2px">По сервисам</div>
+        <div id="uServices"></div>
+      </div>
+    </details>
+    <details class="acc"><summary>🔗 Публичная ссылка</summary>
+      <div class="accbody">${renderShare(d.user.username, d.share_path||"", d.self_signed)}</div>
+    </details>
+    <div style="margin-top:16px;text-align:right">
+      <button class="danger" onclick='delUser("${esc(d.user.username)}")'>Удалить пользователя</button>
+    </div>`;
+  $("#overlay").classList.add("show");
+}
+
+function svcIcon(svc){ return svc==="amneziawg" ? "📱" : (svc==="telemt" ? "✈️" : "🔧"); }
+
+// Графики карточки грузим лениво — при первом раскрытии аккордеона.
+function onUserStatsToggle(username, el){
+  if(el.open && !el.dataset.loaded){
+    el.dataset.loaded = "1";
+    loadUserCharts(username);
+  }
+}
+
+// Переименование: меняем только отображаемое имя. Логин (username) неизменен —
+// он же identity в сервисах и ключ истории трафика.
+let cardUser = null; // пользователь, открытый в карточке
+
+function startRename(){
+  if(!cardUser) return;
+  const box = $("#uTitle");
+  if(!box) return;
+  box.innerHTML = `<div class="uname"><input id="uName" maxlength="64" autocomplete="off">
+      <button class="ghost" onclick="saveRename()">Сохранить</button>
+      <button class="ghost" onclick="openUser(cardUser.username)">Отмена</button></div>
+    <span class="muted mono">${esc(cardUser.username)}</span>`;
+  const inp = $("#uName");
+  inp.value = cardUser.display_name || ""; // через value, а не атрибут: имя произвольное
+  inp.focus(); inp.select();
+  inp.addEventListener("keydown", e=>{
+    if(e.key==="Enter") saveRename();
+    if(e.key==="Escape") openUser(cardUser.username);
+  });
+}
+
+async function saveRename(){
+  const inp = $("#uName");
+  if(!inp || !cardUser) return;
+  const username = cardUser.username;
+  try { await api("PATCH", "/api/users/"+encodeURIComponent(username), {display_name: inp.value}); }
+  catch(e){ toast(e.message); return; }
+  toast("Имя обновлено");
+  await openUser(username);            // перерисовываем карточку со свежим именем
+  loadUsers().catch(()=>{});           // список и графики подписаны именем — обновим
+  loadCharts().catch(()=>{});
+}
+
+// Графики в карточке пользователя: суммарный ряд + разбивка по сервисам.
+// Период — глобальный из шапки (отдельного переключателя в карточке нет).
+async function loadUserCharts(username){
+  let d;
+  try { d = await api("GET", "/api/users/"+encodeURIComponent(username)+"/charts?period="+period+"&tz="+TZ_MIN); }
+  catch(e){ return; }
+  const oBox = $("#uOverall"), sBox = $("#uServices");
+  if(!oBox || !sBox) return; // карточку успели закрыть
+  drawStacked(oBox, d.labels||[], [{name:"Всего", data:d.overall||[], color:"#4f9cff"}]);
+  const svc = (d.services||[]).map((s,i)=>({name:s.name, data:s.data, total:s.total, color:colorFor(s.name,i)}));
+  drawStacked(sBox, d.labels||[], svc);
+}
+function closeModal(){ $("#overlay").classList.remove("show"); }
+$("#overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") closeModal(); });
+
+// Порядок сервисов в карточке: xray, amneziawg, telemt.
+const SVC_ORDER = {xray:0, amneziawg:1, telemt:2};
+function svcCmp(a,b){ return (SVC_ORDER[a]??9)-(SVC_ORDER[b]??9) || a.localeCompare(b); }
+
+// SVG-иконки для кнопок.
+const IC_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const IC_QR = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h3v3h-3v-3zm-5 0h3v3h-3v-3zm5 5h3v3h-3v-3zm-5 0h3v3h-3v-3z"/></svg>';
+const IC_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="8 8 12 4 16 8"/><line x1="12" y1="4" x2="12" y2="16"/></svg>';
+const IC_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+
+// Реестр значений артефактов (для копирования/QR/шаринга по id).
+let itemMap = {}, itemSeq = 0;
+function resetItems(){ itemMap = {}; itemSeq = 0; }
+function regItem(value, file){ const id = "i"+(itemSeq++); itemMap[id] = {value, file: file||""}; return id; }
+
+function iconBtn(onclick, title, svg){
+  return `<button class="ibtn" title="${esc(title)}" onclick="${onclick}">${svg}</button>`;
+}
+
+// Копирование строки: clipboard в secure context, иначе execCommand.
+function copyValue(text){
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(()=>toast("Скопировано")).catch(()=>fallbackCopy(text));
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text){
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly","");
+  ta.style.position="fixed"; ta.style.left="-9999px"; ta.style.top="0";
+  document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch(e){ ok = false; }
+  document.body.removeChild(ta);
+  toast(ok ? "Скопировано" : "Не удалось — выделите вручную");
+}
+function copyItem(id){ copyValue(itemMap[id].value); }
+
+// QR: img из /api/qr (генерится на сервере). Ленивая загрузка при первом показе.
+function toggleQR(id){
+  const box = document.getElementById("qr-"+id);
+  if(!box) return;
+  if(!box.firstChild){
+    const img = document.createElement("img");
+    img.src = "/api/qr?text=" + encodeURIComponent(itemMap[id].value);
+    img.alt = "QR"; box.appendChild(img);
+  }
+  box.style.display = box.style.display === "none" ? "block" : "none";
+}
+
+// Ссылка ли это (vpn://, tg://, vless://, https://…) — однострочная со схемой.
+function isLink(v){ if(typeof v!=="string") return false; const t=v.trim(); return t.indexOf("\n")<0 && /^[a-z][a-z0-9+.-]*:\/\//i.test(t); }
+
+// Поделиться: ссылку — как текст (получатель тапнет и откроет приложение),
+// конфиг-файл — через Web Share API с файлом, иначе скачивание.
+async function shareItem(id){
+  const {value, file} = itemMap[id];
+  if(isLink(value)){
+    if(navigator.share){
+      try { await navigator.share({title: file || "VPN", text: value}); return; }
+      catch(e){ if(e && e.name === "AbortError") return; /* иначе — в копирование */ }
+    }
+    copyValue(value); // на десктопе без share-листа просто копируем ссылку
+    return;
+  }
+  const blob = new Blob([value], {type: "text/plain"});
+  if(navigator.canShare){
+    try {
+      const f = new File([blob], file || "config.txt", {type: "text/plain"});
+      if(navigator.canShare({files:[f]})){ await navigator.share({files:[f], title: file}); return; }
+    } catch(e){ /* отменили или нельзя — падаем в скачивание */ }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = file || "config.txt";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+// items из идентичности: JSON-массив (новый формат) или fallback на строку.
+function itemsOf(o){
+  if(Array.isArray(o.items)) return o.items;
+  try { const a = JSON.parse(o.config || "[]"); return Array.isArray(a) ? a : []; }
+  catch(e){ return o.config ? [{label:"Конфиг", value:o.config}] : []; }
+}
+
+// renderConfig — карточка одного сервиса со всеми вариантами (items).
+// AWG-устройство (identity <username>-awg-<slug>) помечаем 📱 и даём удаление
+// вместо перегенерации: новые ключи устройства = удалить + добавить заново.
+function renderConfig(id, username, inGroup){
+  const devPrefix = username+"-awg-";
+  const isDevice = id.service==="amneziawg" && id.identity.indexOf(devPrefix)===0;
+  const action = isDevice
+    ? `<button class="ghost warnbtn regenbtn" title="Удалить устройство и его конфиг"
+        onclick='delDevice("${esc(username)}","${esc(id.identity.slice(devPrefix.length))}")'>🗑 Удалить</button>`
+    : `<button class="ghost warnbtn regenbtn" title="Выпустить новые ключи/ссылки (старые перестанут работать)"
+        onclick='regenService("${esc(username)}","${esc(id.service)}")'>↻ Перегенерировать</button>`;
+  // Внутри аккордеона сервиса не дублируем имя сервиса в заголовке блока.
+  const prefix = inGroup
+    ? (isDevice?'📱 <span class="chip">устройство</span> ':"")
+    : `${isDevice?"📱":"🔧"} ${esc(id.service)}${isDevice?' <span class="chip">устройство</span>':""} `;
+  const title = `<div class="svc-title">${prefix}<span class="muted mono" style="font-weight:400">${esc(id.identity)}${id.address?(" · "+esc(id.address)):""}</span>
+    ${action}</div>`;
+  const items = itemsOf(id);
+  if(!items.length) return title + `<div class="empty">нет данных</div>`;
+  return title + `<div class="items">${items.map(renderItem).join("")}</div>`;
+}
+
+// regenService выпускает новую учётку в одном сервисе (новые ключи/ссылки).
+async function regenService(username, service){
+  if(!confirm("Перегенерировать конфиг «"+service+"» для "+username+"?\n\n"+
+    "Старые ключи/ссылки перестанут работать — клиенту нужно будет прислать новые.")) return;
+  try { await api("POST", "/api/users/"+encodeURIComponent(username)+"/regenerate",
+    {service}); }
+  catch(e){ toast(e.message); return; }
+  toast("Конфиг «"+service+"» перегенерирован");
+  openUser(username); // перерисовываем карточку со свежими ключами
+}
+
+// addDevice — доп. AWG-конфиг для устройства пользователя (multi-device).
+async function addDevice(username){
+  const device = ((document.getElementById("devName")||{}).value||"").trim();
+  if(!device){ toast("Введите название устройства"); return; }
+  try { await api("POST", "/api/users/"+encodeURIComponent(username)+"/devices", {device}); }
+  catch(e){ toast(e.message); return; }
+  toast("Устройство «"+device+"» добавлено");
+  openUser(username);
+}
+
+// delDevice — удаляет устройство (учётку в панели + identity + историю трафика).
+async function delDevice(username, device){
+  if(!confirm("Удалить устройство «"+device+"» пользователя "+username+"?\n\nКонфиг перестанет работать, история трафика устройства будет удалена.")) return;
+  try { await api("DELETE", "/api/users/"+encodeURIComponent(username)+"/devices/"+encodeURIComponent(device)); }
+  catch(e){ toast(e.message); return; }
+  toast("Устройство удалено");
+  openUser(username);
+}
+
+function renderItem(it){
+  const iid = regItem(it.value, it.file);
+  const multiline = (it.value||"").indexOf("\n") >= 0;
+  const canShare = it.file || isLink(it.value);
+  const btns =
+    iconBtn(`copyItem('${iid}')`, "Копировать", IC_COPY) +
+    (it.qr ? iconBtn(`toggleQR('${iid}')`, "QR-код", IC_QR) : "") +
+    (canShare ? iconBtn(`shareItem('${iid}')`, isLink(it.value) ? "Поделиться ссылкой" : "Поделиться файлом", IC_SHARE) : "");
+  const body = multiline
+    ? `<details class="rawcfg"><summary>показать конфиг</summary><pre>${esc(it.value)}</pre></details>`
+    : `<code class="itemval">${esc(it.value)}</code>`;
+  const qr = it.qr ? `<div class="qrbox" id="qr-${iid}" style="display:none"></div>` : "";
+  return `<div class="itemrow">
+    <div class="itemhead"><span class="itemlabel">${esc(it.label)}</span><span class="sp"></span>${btns}</div>
+    ${body}${qr}</div>`;
+}
+
+// --- Публичная ссылка на страницу с ключами пользователя ---
+function renderShare(username, path, selfSigned){
+  if(!path){
+    return `<div class="empty">Ссылки нет.
+      <button class="ghost" style="margin-left:8px" onclick="createShare('${esc(username)}')">Создать ссылку</button></div>`;
+  }
+  const url = location.origin + path;
+  const iid = regItem(url, "");
+  // Самоподписанный сертификат встроенный браузер Telegram отвергает без права
+  // «всё равно открыть» — клиенту нужно открыть ссылку во внешнем браузере.
+  const warn = selfSigned ? `<div class="warn">⚠️ Сертификат самоподписанный — во встроенном
+    браузере Telegram ссылка не откроется. Попросите клиента открыть её во внешнем браузере
+    (в Telegram: меню «⋮» → «Открыть в браузере») и принять предупреждение о сертификате.</div>` : "";
+  return `<div class="items"><div class="itemrow">
+    <div class="itemhead"><span class="itemlabel">Ссылка для клиента</span><span class="sp"></span>
+      ${iconBtn(`copyItem('${iid}')`, "Копировать", IC_COPY)}
+      ${iconBtn(`toggleQR('${iid}')`, "QR-код", IC_QR)}
+      ${iconBtn(`shareItem('${iid}')`, "Поделиться ссылкой", IC_SHARE)}</div>
+    <code class="itemval">${esc(url)}</code>
+    <div class="qrbox" id="qr-${iid}" style="display:none"></div>
+    ${warn}
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="ghost" onclick="createShare('${esc(username)}')">Пересоздать</button>
+      <button class="danger" onclick="revokeShare('${esc(username)}')">Отозвать</button></div>
+  </div></div>`;
+}
+async function createShare(username){
+  try { await api("POST", "/api/users/"+encodeURIComponent(username)+"/share"); }
+  catch(e){ toast(e.message); return; }
+  toast("Публичная ссылка создана"); openUser(username);
+}
+async function revokeShare(username){
+  if(!confirm("Отозвать ссылку? Старая перестанет открываться.")) return;
+  try { await api("DELETE", "/api/users/"+encodeURIComponent(username)+"/share"); }
+  catch(e){ toast(e.message); return; }
+  toast("Ссылка отозвана"); openUser(username);
+}
+
+async function delUser(username){
+  if(!confirm("Удалить "+username+" из всех сервисов?")) return;
+  try { await api("DELETE", "/api/users/"+encodeURIComponent(username)); }
+  catch(e){ toast(e.message); return; }
+  toast("Пользователь удалён");
+  closeModal(); refresh();
+}
+
+async function createUser(){
+  const display = $("#newDisplay").value.trim();
+  if(!display){ toast("Введите имя"); return; }
+  const btn = $("#createBtn"); btn.disabled = true; btn.textContent = "Создаю…";
+  try {
+    // Читаем тело в любом случае (даже при 400), чтобы показать ошибки по сервисам.
+    const r = await fetch("/api/users", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({display_name:display})});
+    const d = await r.json().catch(()=>({}));
+    if(r.ok){ $("#newDisplay").value=""; }
+    showCreateResult((d.user&&d.user.username)||display, d, r.ok);
+    await refresh();
+  } catch(e){ toast(e.message); }
+  finally { btn.disabled=false; btn.textContent="Создать во всех сервисах"; }
+}
+
+// showCreateResult — показывает итог создания: успешные сервисы с конфигами
+// и неуспешные с текстом ошибки.
+function showCreateResult(username, d, ok){
+  resetItems();
+  const results = d.results || [];
+  let html = `<div class="row" style="border:none;padding-top:0">
+    <div><h3>${ok?"✅":"⚠️"} ${esc(username)}</h3>
+      <span class="muted">${ok?"пользователь создан":"создание не удалось"}</span></div>
+    <button class="close" onclick="closeModal()">×</button></div>`;
+
+  if(d.error){
+    html += `<div class="cfgbox" style="margin-bottom:8px"><pre style="color:var(--red)">${esc(d.error)}</pre></div>`;
+  }
+  if(!results.length && !d.error){
+    html += `<div class="empty">Сервисы не вернули результатов (провижининг выключен?).</div>`;
+  }
+
+  results.slice().sort((x,y)=>svcCmp(x.service,y.service)).forEach(rs=>{
+    if(rs.ok){
+      const a = rs.account || {};
+      html += renderConfig({service:rs.service, identity:a.identity||username,
+        address:a.address||"", items:a.items||[]});
+    } else {
+      html += `<div class="svc-title" style="color:var(--red)">❌ ${esc(rs.service)}</div>
+        <div class="cfgbox"><pre style="color:var(--red)">${esc(rs.error||"ошибка")}</pre></div>`;
+    }
+  });
+
+  if(ok){
+    html += `<div style="margin-top:16px;text-align:right">
+      <button class="ghost" onclick="openUser('${esc(username)}')">Открыть карточку</button></div>`;
+  }
+
+  $("#modal").innerHTML = html;
+  $("#overlay").classList.add("show");
+}
+
+$("#createBtn").addEventListener("click", createUser);
+$("#createToggle").addEventListener("click", ()=>{
+  const f = $("#createForm");
+  f.style.display = f.style.display==="none" ? "" : "none";
+  if(f.style.display!=="none") $("#newDisplay").focus();
+});
+$("#userSearch").addEventListener("input", renderUsers);
+
+// Период управляет только Обзором (итоги/графики); список юзеров — за всё время.
+$("#periods").addEventListener("click", e=>{
+  const p = e.target.dataset.p; if(!p) return;
+  period = p;
+  document.querySelectorAll("#periods button").forEach(b=>b.classList.toggle("on", b.dataset.p===p));
+  closeMenu();
+  loadOverview();
+  loadCharts();
+  const st = $("#uStats");
+  if(st && st.open && cardUser){ st.dataset.loaded="1"; loadUserCharts(cardUser.username); }
+});
+
+// Вкладки: Обзор / Пользователи / Система (сохраняются в hash).
+let view = "overview";
+function switchView(v, push=true){
+  if(!["overview","users","system"].includes(v)) v = "overview";
+  view = v;
+  ["overview","users","system"].forEach(x=>{ $("#view-"+x).style.display = x===v ? "" : "none"; });
+  document.querySelectorAll("#mainTabs button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
+  // Переключатель периода живёт только на Обзоре (анализ трафика);
+  // на Пользователях/Системе скрыт — там он не нужен.
+  const p = $("#periods");
+  p.style.display = v==="overview" ? "" : "none";
+  if(push) history.replaceState(null,"","#"+v);
+  if(v==="system") loadSystem().catch(()=>{});
+  closeMenu();
+}
+$("#mainTabs").addEventListener("click", e=>{ const v=e.target.dataset.v; if(v) switchView(v); });
+window.addEventListener("hashchange", ()=>switchView(location.hash.replace("#",""), false));
+
+// Вкладки разрезов графика (данные общие — просто перерисовываем).
+$("#chartTabs").addEventListener("click", e=>{
+  const c = e.target.dataset.c; if(!c) return;
+  chartView = c;
+  document.querySelectorAll("#chartTabs button").forEach(b=>b.classList.toggle("on", b.dataset.c===c));
+  renderChart();
+});
+
+// Меню в шапке (на мобильном — выпадающее по ☰).
+function closeMenu(){ $("#hdrtools").classList.remove("open"); }
+$("#burger").addEventListener("click", e=>{
+  e.stopPropagation();
+  $("#hdrtools").classList.toggle("open");
+});
+document.addEventListener("click", e=>{
+  if(!$("#hdrtools").contains(e.target) && e.target !== $("#burger")) closeMenu();
+});
+
+// --- Тема: светлая / тёмная / системная (сохраняется в localStorage) ---
+const THEME_KEY = "vps-theme";
+function resolveTheme(pref){
+  if(pref === "system")
+    return (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+  return pref;
+}
+function applyTheme(){
+  const pref = localStorage.getItem(THEME_KEY) || "system";
+  document.documentElement.setAttribute("data-theme", resolveTheme(pref));
+  document.querySelectorAll("#theme button").forEach(b=>b.classList.toggle("on", b.dataset.t===pref));
+}
+$("#theme").addEventListener("click", e=>{
+  const t = e.target.dataset.t; if(!t) return;
+  localStorage.setItem(THEME_KEY, t);
+  applyTheme();
+  closeMenu();
+});
+if(window.matchMedia){
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", ()=>{
+    if((localStorage.getItem(THEME_KEY)||"system") === "system") applyTheme();
+  });
+}
+applyTheme();
+
+// Выход: сбрасываем session-cookie на сервере и показываем форму входа.
+async function logout(){
+  try{ await fetch("/api/logout", {method:"POST"}); }catch(e){}
+  location.reload();
+}
+$("#logout").addEventListener("click", logout);
+
+// PWA: регистрируем service worker (нужен для установки на телефон).
+// Требует secure context — по HTTP просто не сработает, это нормально.
+// «Подключения»: ротация Reality-SNI/dest/fingerprint, домен-маска telemt,
+// запасной транспорт XHTTP/gRPC. Состояние читается из сервисов при открытии.
+let connData = null;
+async function toggleConnections(){
+  const body = $("#connBody"), btn = $("#connToggle");
+  if(body.style.display === "none"){
+    body.style.display = ""; btn.textContent = "Скрыть";
+    await loadConnections();
+  } else { body.style.display = "none"; btn.textContent = "Показать"; }
+}
+async function loadConnections(){
+  try { connData = await api("GET", "/api/connections"); }
+  catch(e){ $("#connBody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const d = connData, r = d.reality||{};
+  const presets = (d.presets||[]).map((p,i)=>`<button class="ghost" onclick="connPreset(${i})">${esc(p.name)}</button>`).join(" ");
+  const fps = (d.fingerprints||[]).map(f=>`<option value="${f}"${f===r.fingerprint?" selected":""}>${f}</option>`).join("");
+  const bk = (d.backups||[]).find(b=>b.enabled) || (d.backups||[])[0] || {};
+  const bkNames = (bk.server_names||[]).join("\n");
+  $("#connBody").innerHTML = `
+    <div class="itemlabel" style="margin:10px 0 4px">VLESS + Reality (основной)</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Ротация при блокировке текущих доменов. Xray перезапустится; подписка обновится сама, ссылки перевыпустятся в карточках юзеров. Пресеты проверяются с сервера.</div>
+    <div class="form-row" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">${presets}</div>
+    <div class="form-row" style="gap:8px">
+      <input id="connDest" value="${esc(r.dest||"")}" placeholder="dest, напр. www.google.com">
+      <select id="connFp" style="width:auto">${fps}</select>
+    </div>
+    <textarea id="connSni" rows="4" style="margin-top:6px" placeholder="SNI, по одному на строку">${esc((r.server_names||[]).join("\n"))}</textarea>
+    <div style="margin-top:6px"><button onclick="applyReality()">Применить Reality</button></div>
+    <div class="itemlabel" style="margin:16px 0 4px">Telegram (telemt FakeTLS)</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Текущий домен-маска: <b>${esc(d.telemt_domain||"—")}</b>. Смена домена меняет ВСЕ tg://-ссылки — нужно раздать новые. Домен должен быть реальным HTTPS-сайтом, отличным от Reality-SNI.</div>
+    <div class="form-row" style="gap:8px">
+      <input id="connTgDomain" placeholder="новый домен, напр. example.com">
+      <button class="ghost" style="flex:0 0 auto" onclick="applyTgDomain()">Сменить домен</button>
+    </div>
+    <div class="itemlabel" style="margin:16px 0 4px">Запасной транспорт (XHTTP/gRPC)</div>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Второй канал на случай блокировки основного Reality-TCP. Свой набор SNI; клиенты получат доп. ссылку в тех же конфигах/подписке.</div>
+    <div class="form-row" style="gap:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="connBkOn" style="width:auto"${bk.enabled?" checked":""}> включён</label>
+      <select id="connBkTransport" style="width:auto">
+        <option value="xhttp"${bk.transport==="grpc"?"":" selected"}>XHTTP</option>
+        <option value="grpc"${bk.transport==="grpc"?" selected":""}>gRPC</option>
+      </select>
+      <input id="connBkDest" value="${esc(bk.dest||"www.microsoft.com")}" placeholder="dest">
+    </div>
+    <textarea id="connBkSni" rows="3" style="margin-top:6px" placeholder="SNI запасного канала, по одному на строку">${esc(bkNames || "www.microsoft.com\nlogin.microsoftonline.com\nwww.office.com")}</textarea>
+    <div style="margin-top:6px"><button onclick="applyBackup()">Применить запасной канал</button></div>`;
+}
+function connPreset(i){
+  const p = (connData.presets||[])[i]; if(!p) return;
+  $("#connDest").value = p.dest;
+  $("#connSni").value = p.server_names.join("\n");
+}
+const sniLines = v => (v||"").split("\n").map(s=>s.trim()).filter(Boolean);
+async function applyReality(){
+  if(!confirm("Применить новые параметры Reality?\n\nXray перезапустится (кратковременный разрыв). Клиентам нужно обновить конфиги (подписка обновится сама).")) return;
+  try {
+    const d = await api("POST", "/api/connections/reality", {
+      server_names: sniLines($("#connSni").value),
+      dest: $("#connDest").value.trim(),
+      fingerprint: $("#connFp").value,
+    });
+    toast(d.warning || "Reality обновлён");
+  } catch(e){ toast(e.message); return; }
+  loadConnections();
+}
+async function applyTgDomain(){
+  const domain = $("#connTgDomain").value.trim();
+  if(!domain){ toast("Введите домен"); return; }
+  if(!confirm("Сменить домен-маску Telegram на "+domain+"?\n\nВСЕ tg://-ссылки изменятся — клиентам нужно раздать новые конфиги.")) return;
+  try { const d = await api("POST", "/api/connections/telemt", {domain}); toast(d.warning || "Домен сменён"); }
+  catch(e){ toast(e.message); return; }
+  loadConnections();
+}
+async function applyBackup(){
+  const enabled = $("#connBkOn").checked;
+  if(!confirm(enabled ? "Включить запасной канал? Клиенты получат дополнительные ссылки." : "Выключить запасной канал? Его ссылки перестанут работать.")) return;
+  try {
+    const d = await api("POST", "/api/connections/backup", {
+      enabled, transport: $("#connBkTransport").value,
+      server_names: sniLines($("#connBkSni").value),
+      dest: $("#connBkDest").value.trim(),
+    });
+    toast(d.warning || "Готово");
+  } catch(e){ toast(e.message); return; }
+  loadConnections();
+}
+
+if("serviceWorker" in navigator && window.isSecureContext){
+  window.addEventListener("load", ()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+}
+
+function refresh(){ return Promise.all([loadOverview(), loadUsers(), loadSystem(), loadCharts()]); }
+refresh().catch(e=>toast(e.message));
+switchView(location.hash.replace("#","") || "overview", false);
+
+// Автообновление: ресурсы, трафик и графики сами подтягивают актуальные значения.
+// Ошибки глушим — иначе при кратком обрыве сети посыпятся тосты.
+const REFRESH_MS = 15000;
+setInterval(()=>{
+  if(document.hidden) return; // вкладка не активна — не дёргаем сервер
+  loadSystem().catch(()=>{});
+  loadOverview().catch(()=>{});
+  loadUsers().catch(()=>{});
+  loadCharts().catch(()=>{});
+}, REFRESH_MS);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refresh().catch(()=>{}); });
+</script>
+</body>
+</html>

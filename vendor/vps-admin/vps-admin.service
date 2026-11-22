@@ -1,0 +1,26 @@
+[Unit]
+Description=vps-admin — VPN traffic stats & user provisioning
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/vps-admin
+ExecStart=/opt/vps-admin/vps-admin -config /etc/vps-admin/config.yaml
+Restart=always
+RestartSec=5
+
+# Логи: сервис пишет и в файл (log_path из конфига), и в stdout → journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vps-admin
+
+# Ресурсы и приоритет.
+LimitNOFILE=65535
+Nice=10
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

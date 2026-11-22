@@ -1,0 +1,10 @@
+bin/
+*.db
+*.db-wal
+*.db-shm
+*.log
+.idea/
+
+# рабочий конфиг с секретами — только локально
+config.yaml
+.claude/
