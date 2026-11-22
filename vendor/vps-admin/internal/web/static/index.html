@@ -251,7 +251,7 @@
       <button data-t="dark" title="Тёмная">🌙</button>
       <button data-t="system" title="Системная">🖥️</button>
     </div>
-    <span id="panellinks"></span>
+    <span id="panellinks" style="display:none"></span>
     <button class="ghost" id="logout" title="Выйти" style="display:none;padding:6px 12px">Выйти</button>
   </div>
 </header>
@@ -322,6 +322,7 @@
     <div class="card" style="margin-bottom:16px">
       <h2 style="margin:0 0 10px">Компоненты</h2>
       <div id="components"></div>
+      <div id="componentLinks" class="form-row" style="flex-wrap:wrap;gap:8px;margin-top:14px"></div>
     </div>
     <div class="card" id="syscard" style="display:none;margin-bottom:16px">
       <h2>Ресурсы сервера</h2>
@@ -411,10 +412,6 @@ async function loadOverview(){
     `<div class="row"><span>${i+1}. ${esc(u.service)}</span><span class="bytes">${fmtBytes(u.bytes)}</span></div>`
   ).join("") : `<div class="empty">Нет данных за период.</div>`;
   $("#logout").style.display = d.auth ? "" : "none"; // кнопка выхода — только если задан пароль
-  // ссылки на админки других сервисов (из авторизованного overview)
-  $("#panellinks").innerHTML = (d.panels||[]).map(p=>
-    `<a class="ghost" href="${esc(p.url)}" target="_blank" rel="noopener" title="Открыть в новой вкладке">${esc(p.label)} ↗</a>`
-  ).join("");
   renderMaint(d.provisioners||[]);
 }
 
@@ -1268,9 +1265,16 @@ async function applyBackup(){
 // ---------------------------------------------------------------------------
 let compPoll = null;
 async function loadComponents(){
-  let list;
-  try { list = await api("GET", "/api/components"); }
+  let resp;
+  try { resp = await api("GET", "/api/components"); }
   catch(e){ $("#components").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const list = resp.components || resp;
+  // Ссылки на все веб-страницы стека живут здесь (в шапке их больше нет).
+  const links = resp.links || [];
+  $("#componentLinks").innerHTML = links.length
+    ? links.map(l=>`<a class="ghost" href="${esc(l.url)}" target="_blank" rel="noopener"
+        title="Открыть в новой вкладке">${esc(l.label)} ↗</a>`).join("")
+    : `<span class="muted" style="font-size:12px">Ссылки на страницы появятся после заполнения public_url / sub_url в конфиге</span>`;
   $("#components").innerHTML = list.map(c=>{
     const job = c.job;
     const running = job && job.state==="running";
@@ -1315,7 +1319,7 @@ function openCompLog(name){
 async function pollCompLog(){
   if(!compWatch) return;
   let list;
-  try { list = await api("GET", "/api/components"); }
+  try { const resp = await api("GET", "/api/components"); list = resp.components || resp; }
   catch(e){
     // vps-admin перезапускает сам себя — обрыв связи ожидаем.
     const st = $("#compState"); if(st) st.textContent = "сервис перезапускается, ожидание…";

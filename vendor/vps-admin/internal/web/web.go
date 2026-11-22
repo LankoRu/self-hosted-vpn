@@ -709,32 +709,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"users":        users,
 		"auth":         s.cfg.Web.Password != "",  // есть ли что «разлогинивать»
 		"provisioners": s.mgr.ProvisionServices(), // сервисы с регистрацией/перегенерацией
-		"panels":       s.panelLinks(),            // ссылки на админки других сервисов
 	})
-}
-
-// panelLinks — ссылки на админки других сервисов для шапки панели.
-// Публичный адрес выводим из конфига в рантайме (public_host / хост sub_url +
-// web_base_path панели 3x-ui) — отдельных полей конфига не добавляем.
-// Отдаётся только в авторизованном overview; на публичную страницу /p/ не попадает.
-func (s *Server) panelLinks() []map[string]string {
-	host := strings.TrimSpace(s.cfg.Xray3xUI.PublicHost)
-	if host == "" && s.cfg.Xray3xUI.SubURL != "" {
-		if u, err := url.Parse(s.cfg.Xray3xUI.SubURL); err == nil {
-			host = u.Hostname()
-		}
-	}
-	if host == "" {
-		host = strings.TrimSpace(s.cfg.AmneziaWG3xUI.PublicHost)
-	}
-	if host == "" {
-		return nil
-	}
-	u := "https://" + host + "/"
-	if path := strings.Trim(s.cfg.Xray3xUI.WebBasePath, "/"); path != "" {
-		u += path + "/"
-	}
-	return []map[string]string{{"label": "3x-ui", "url": u}}
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {

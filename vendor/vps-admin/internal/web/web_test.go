@@ -637,16 +637,17 @@ func TestCreateUserNoProvisioners(t *testing.T) {
 	}
 }
 
-func TestOverviewPanelLinks(t *testing.T) {
-	// Ссылки на админки выводятся из конфига (public_host + web_base_path),
-	// отдельных полей конфига нет; без хоста — ссылок нет.
+func TestComponentPageLinks(t *testing.T) {
+	// Ссылки на все веб-страницы стека живут в разделе «Компоненты»
+	// (/api/components), а не в шапке. Хост выводится из конфига.
 	cases := []struct {
-		name, host, subURL, basePath, want string
+		name, host, subURL, basePath, publicURL string
+		wantPanel, wantSub, wantSelf            bool
 	}{
-		{"public_host + путь", "203.0.113.5", "", "panel123", "https://203.0.113.5/panel123/"},
-		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", "https://vpn.example.com/"},
-		{"путь со слэшами", "203.0.113.5", "", "/panel123/", "https://203.0.113.5/panel123/"},
-		{"нет хоста — нет ссылок", "", "", "panel123", ""},
+		{"public_host + путь", "203.0.113.5", "", "panel123", "", true, false, false},
+		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", "", true, true, false},
+		{"путь со слэшами", "203.0.113.5", "", "/panel123/", "https://203.0.113.5/vps-x/", true, false, true},
+		{"нет хоста — только ссылка на себя", "", "", "", "https://1.2.3.4/vps-y/", false, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -655,6 +656,7 @@ func TestOverviewPanelLinks(t *testing.T) {
 			cfg.Xray3xUI.PublicHost = c.host
 			cfg.Xray3xUI.SubURL = c.subURL
 			cfg.Xray3xUI.WebBasePath = c.basePath
+			cfg.Web.PublicURL = c.publicURL
 			st, err := store.New(filepath.Join(t.TempDir(), "test.db"), cfg)
 			if err != nil {
 				t.Fatalf("store: %v", err)
@@ -663,21 +665,38 @@ func TestOverviewPanelLinks(t *testing.T) {
 			ts := httptest.NewServer(New(cfg, st, manager.New(st, registry.New(cfg, st))).Handler())
 			t.Cleanup(ts.Close)
 
-			var ov struct {
-				Panels []struct {
+			var resp struct {
+				Links []struct {
 					Label string `json:"label"`
 					URL   string `json:"url"`
-				} `json:"panels"`
+				} `json:"links"`
 			}
-			getJSON(t, ts.URL+"/api/overview", &ov)
-			if c.want == "" {
-				if len(ov.Panels) != 0 {
-					t.Errorf("ожидалось без ссылок, получено %v", ov.Panels)
+			getJSON(t, ts.URL+"/api/components", &resp)
+			var panel, sub, self string
+			for _, l := range resp.Links {
+				switch {
+				case strings.HasPrefix(l.Label, "3x-ui"):
+					panel = l.URL
+				case l.Label == "Подписки":
+					sub = l.URL
+				case strings.HasPrefix(l.Label, "vps-admin"):
+					self = l.URL
 				}
-				return
 			}
-			if len(ov.Panels) != 1 || ov.Panels[0].URL != c.want || ov.Panels[0].Label != "3x-ui" {
-				t.Errorf("panels = %v, ожидался 3x-ui %s", ov.Panels, c.want)
+			if c.wantPanel && !strings.HasPrefix(panel, "https://") {
+				t.Errorf("нет ссылки на 3x-ui: %v", resp.Links)
+			}
+			if c.wantSub && sub != c.subURL {
+				t.Errorf("подписки = %q, want %q", sub, c.subURL)
+			}
+			if c.wantSelf && self != c.publicURL {
+				t.Errorf("ссылка на себя = %q, want %q", self, c.publicURL)
+			}
+			if !c.wantPanel && panel != "" {
+				t.Errorf("не ожидалась ссылка на 3x-ui: %q", panel)
+			}
+			if !c.wantSelf && self != "" {
+				t.Errorf("не ожидалась ссылка на себя: %q", self)
 			}
 		})
 	}
@@ -984,12 +1003,19 @@ func TestComponentsAPI(t *testing.T) {
 	if err != nil || r.StatusCode != http.StatusOK {
 		t.Fatalf("GET components: %v status=%d", err, r.StatusCode)
 	}
-	var list []struct {
-		Name      string `json:"name"`
-		Updatable bool   `json:"updatable"`
+	var resp struct {
+		Components []struct {
+			Name      string `json:"name"`
+			Updatable bool   `json:"updatable"`
+		} `json:"components"`
+		Links []struct {
+			Label string `json:"label"`
+			URL   string `json:"url"`
+		} `json:"links"`
 	}
-	json.NewDecoder(r.Body).Decode(&list)
+	json.NewDecoder(r.Body).Decode(&resp)
 	r.Body.Close()
+	list := resp.Components
 	if len(list) != 6 {
 		t.Fatalf("компонентов = %d, want 6", len(list))
 	}
