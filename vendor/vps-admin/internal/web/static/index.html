@@ -320,7 +320,14 @@
 
   <div id="view-system" style="display:none">
     <div class="card" style="margin-bottom:16px">
-      <h2 style="margin:0 0 10px">Компоненты</h2>
+      <h2 style="margin:0 0 10px">Компоненты
+        <button class="hintq" onclick="this.nextElementSibling.classList.toggle('open')">?</button>
+        <div class="hintbody">Версии и доступность обновлений проверяются автоматически раз в час (в фоне) — страница показывает сохранённый снимок, а не дёргает GitHub при каждом открытии. «Проверить» — запросить сейчас.</div>
+      </h2>
+      <div class="row" style="border:none;padding:0 0 6px;gap:8px">
+        <span class="muted" id="compChecked" style="font-size:12px"></span>
+        <button class="ghost" style="flex:0 0 auto;padding:4px 10px;font-size:12px" onclick="refreshComponents()">Проверить</button>
+      </div>
       <div id="components"></div>
       <div id="componentLinks" class="form-row" style="flex-wrap:wrap;gap:8px;margin-top:14px"></div>
     </div>
@@ -1264,11 +1271,26 @@ async function applyBackup(){
 // «Компоненты»: версии + обновления с окном живого прогресса.
 // ---------------------------------------------------------------------------
 let compPoll = null;
+async function refreshComponents(){
+  try { await api("POST", "/api/components/refresh", {}); } catch(e){ toast(e.message); return; }
+  toast("Проверяю обновления…");
+  setTimeout(()=>loadComponents().catch(()=>{}), 1500);
+  setTimeout(()=>loadComponents().catch(()=>{}), 4000);
+}
 async function loadComponents(){
   let resp;
   try { resp = await api("GET", "/api/components"); }
   catch(e){ $("#components").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   const list = resp.components || resp;
+  const chk = $("#compChecked");
+  if(chk){
+    if(!resp.checked_at){ chk.textContent = "проверка ещё не выполнялась"; }
+    else {
+      const min = Math.floor((Date.now() - new Date(resp.checked_at).getTime())/60000);
+      const ago = min < 1 ? "только что" : (min < 60 ? min+" мин назад" : Math.floor(min/60)+" ч назад");
+      chk.textContent = "проверено " + ago + " · автообновление раз в час";
+    }
+  }
   // Ссылки на все веб-страницы стека живут здесь (в шапке их больше нет).
   const links = resp.links || [];
   $("#componentLinks").innerHTML = links.length
@@ -1288,7 +1310,10 @@ async function loadComponents(){
     const btn = !c.updatable ? `<span class="muted" title="${esc(c.note||"")}">—</span>`
       : running ? `<button class="ghost" onclick="openCompLog('${c.name}')">Прогресс…</button>`
       : (sameVer && !c.update_available) ? `<span style="color:var(--green)">✓ актуально</span>`
-      : `<button class="ghost${c.update_available?" warnbtn":""}" title="${esc(c.note||"")}" onclick="updateComponent('${c.name}')">Обновить</button>`;
+      : c.update_available ? `<button class="ghost warnbtn" title="${esc(c.note||"")}" onclick="updateComponent('${c.name}')">Обновить</button>`
+      // последняя версия неизвестна (проверка недоступна: GitHub-лимит, aptitude) —
+      // кнопка есть, но приглушённая: это принудительное обновление, а не сигнал.
+      : `<button class="ghost" style="opacity:.55" title="последняя версия не определена — обновление принудительное" onclick="updateComponent('${c.name}')">Обновить</button>`;
     return `<div class="row"><span><b>${esc(c.title)}</b>${badge}${state}<br><span class="muted mono">${ver}</span></span><span>${btn}</span></div>`;
   }).join("");
   const anyRunning = list.some(c=>c.job && c.job.state==="running");

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -92,6 +93,14 @@ type Runner struct {
 	client   *http.Client
 	tagMu    sync.Mutex
 	tagCache map[string]tagEntry // кэш GitHub-тегов (rate limit 60/ч без токена)
+
+	// Снимок версий: сеть опрашивается раз в час (фоновый refresher), а страница
+	// читает готовый снимок. Иначе каждый показ «Компонентов» съедал GitHub-лимит
+	// (60/ч на IP) и версии превращались в «неизвестно».
+	snapMu      sync.RWMutex
+	snapshot    []Component
+	refreshedAt time.Time
+	refreshMu   sync.Mutex // single-flight: параллельные Refresh не дублируют сеть
 }
 
 type tagEntry struct {
@@ -142,12 +151,86 @@ func (r *Runner) Start(name string) error {
 		}
 		j.write(">>> Готово\n")
 		j.finish("done")
+		// Снимок версий устарел — обновляем (синхронно в этой же горутине).
+		r.Refresh(context.Background())
 	}()
 	return nil
 }
 
-// List собирает версии всех компонентов (best-effort: недоступные — «—»).
+// RefreshInterval — период фоновой проверки обновлений.
+const RefreshInterval = time.Hour
+
+// StartRefresher запускает фоновое обновление снимка: сразу при старте и далее
+// раз в интервал. Вызывать горутиной из main.
+func (r *Runner) StartRefresher(ctx context.Context) {
+	r.Refresh(ctx)
+	t := time.NewTicker(RefreshInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.Refresh(ctx)
+		}
+	}
+}
+
+// Refresh опрашивает сервисы/GitHub и сохраняет снимок версий (single-flight).
+func (r *Runner) Refresh(ctx context.Context) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	snap := r.collect(ctx)
+	r.snapMu.Lock()
+	r.snapshot = snap
+	r.refreshedAt = time.Now()
+	r.snapMu.Unlock()
+}
+
+// RefreshedAt — когда снимок обновлялся в последний раз (zero — ещё ни разу).
+func (r *Runner) RefreshedAt() time.Time {
+	r.snapMu.RLock()
+	defer r.snapMu.RUnlock()
+	return r.refreshedAt
+}
+
+// List возвращает снимок версий + актуальное состояние job'ов (job'ы живые,
+// они не кэшируются). Если снимка ещё нет — собирает локальные версии без сети.
 func (r *Runner) List() []Component {
+	r.snapMu.RLock()
+	snap := r.snapshot
+	r.snapMu.RUnlock()
+	var out []Component
+	if snap == nil {
+		out = r.localOnly()
+	} else {
+		out = make([]Component, len(snap))
+		copy(out, snap)
+	}
+	// job'ы всегда живые (прогресс обновления), в снимок не кэшируются —
+	// важно и до первого снимка, иначе окно прогресса не видит состояние.
+	for i := range out {
+		out[i].Job = nil
+		if j := r.job(out[i].Name); j != nil {
+			out[i].Job = j.snapshot()
+		}
+	}
+	return out
+}
+
+// localOnly — версии без сетевых запросов (пока первый снимок не готов).
+func (r *Runner) localOnly() []Component {
+	ctx := context.Background()
+	out := r.collect(ctx)
+	for i := range out {
+		out[i].Latest = ""
+		out[i].UpdateAvailable = false
+	}
+	return out
+}
+
+// collect собирает версии всех компонентов (best-effort: недоступные — «—»).
+func (r *Runner) collect(ctx context.Context) []Component {
 	out := []Component{
 		r.vpsAdmin(),
 		r.panel3xui(),
@@ -155,11 +238,6 @@ func (r *Runner) List() []Component {
 		r.telemt(),
 		r.amneziawg(),
 		r.nginx(),
-	}
-	for i := range out {
-		if j := r.job(out[i].Name); j != nil {
-			out[i].Job = j.snapshot()
-		}
 	}
 	return out
 }
@@ -179,13 +257,16 @@ func firstLine(s string) string {
 
 // --- версии -----------------------------------------------------------------
 
+var releaseTagRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
 func (r *Runner) vpsAdmin() Component {
 	c := Component{Name: "vps-admin", Title: "vps-admin (панель/бот)", Version: version.Version, Updatable: true}
 	if tag, err := r.githubLatestTag(r.cfg.Update.GithubRepo); err == nil {
 		c.Latest = tag
-		// Бейдж «доступно обновление» — только для релизных сборок (vX.Y.Z):
-		// dev-сборка новее релиза, и «обновление» было бы даунгрейдом.
-		isRelease := strings.HasPrefix(version.Version, "v") && strings.Count(version.Version, ".") == 2
+		// «Доступно обновление» — только для чистых релизных тегов (vX.Y.Z).
+		// git describe даёт «v0.1.0-4-gad3e692-dirty» — это dev-сборка,
+		// для неё бейдж вводил бы в заблуждение.
+		isRelease := releaseTagRe.MatchString(version.Version)
 		c.UpdateAvailable = isRelease && tag != "" && tag != version.Version
 		if !isRelease {
 			c.Note = "локальная/dev-сборка; «Обновить» поставит стабильный релиз"
@@ -208,12 +289,23 @@ func (r *Runner) panel3xui() Component {
 		c.Version = info.Obj.CurrentVersion
 		c.Latest = strings.TrimPrefix(info.Obj.LatestVersion, "v")
 		c.UpdateAvailable = info.Obj.UpdateAvailable
+		// Сейм кэш для fallback через GitHub, когда сама панель не может
+		// проверить обновления (её проверка тоже бьётся в GitHub-лимит).
+		if c.Latest != "" {
+			r.tagMu.Lock()
+			r.tagCache["MHSanaei/3x-ui"] = tagEntry{tag: "v" + c.Latest, at: time.Now()}
+			r.tagMu.Unlock()
+		}
 		return c
 	}
 	if v, err := runOut(context.Background(), "/usr/local/x-ui/x-ui", "-v"); err == nil {
 		c.Version = firstLine(v)
 	} else {
 		c.Version = "—"
+	}
+	if tag, err := r.githubLatestTag("MHSanaei/3x-ui"); err == nil && tag != "" {
+		c.Latest = strings.TrimPrefix(tag, "v")
+		c.UpdateAvailable = c.Version != "—" && c.Latest != c.Version
 	}
 	return c
 }
@@ -295,7 +387,19 @@ func (r *Runner) githubLatestTag(repo string) (string, error) {
 		return e.tag, nil
 	}
 	r.tagMu.Unlock()
-	return r.githubLatestTagFresh(repo)
+	tag, err := r.githubLatestTagFresh(repo)
+	if err != nil {
+		// GitHub-лимит/сеть: лучше показать устаревший тег, чем «неизвестно»
+		// (иначе UI теряет понимание «уже актуально» и рисует кнопки).
+		r.tagMu.Lock()
+		if e, ok := r.tagCache[repo]; ok {
+			r.tagMu.Unlock()
+			return e.tag, nil
+		}
+		r.tagMu.Unlock()
+		return "", err
+	}
+	return tag, nil
 }
 
 // githubLatestTagFresh — всегда сетезапрос, без кэша. Используется ПРИ

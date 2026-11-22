@@ -5,16 +5,34 @@ package web
 // живой лог в окне прогресса.
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/LankoRu/vps-admin/internal/components"
 )
 
 func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
+	// Версии — из снимка (обновляется раз в час), не «актуальные» из сети.
+	checked := ""
+	if t := s.comp.RefreshedAt(); !t.IsZero() {
+		checked = t.UTC().Format(time.RFC3339)
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"components": s.comp.List(),
 		"links":      s.componentLinks(), // ссылки на все веб-страницы стека
+		"checked_at": checked,            // когда снимок обновлялся ("" — ещё нет)
+		"interval":   int(components.RefreshInterval.Seconds()),
 	})
+}
+
+// handleComponentsRefresh — принудительная проверка обновлений (кнопка
+// «Проверить»). Асинхронно: сеть может отвечать секунды, UI опрашивает снимок.
+func (s *Server) handleComponentsRefresh(w http.ResponseWriter, r *http.Request) {
+	go s.comp.Refresh(context.Background())
+	writeJSON(w, http.StatusOK, map[string]bool{"started": true})
 }
 
 // componentLinks — ссылки на другие веб-страницы стека для раздела «Компоненты»
