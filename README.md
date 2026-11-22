@@ -44,7 +44,13 @@ curl -fsSL https://raw.githubusercontent.com/LankoRu/self-hosted-vpn/main/instal
 ```
 
 `--yes` берёт все дефолты (IP определяется автоматически, секреты генерируются
-на сервере); обязательны только `--bot-token` и `--bot-chat` (или `--no-vpsadmin`).
+на сервере); обязательны только `--bot-token` и `--bot-chat` (или `--no-bot` —
+панель со сбором статистики, но без Telegram, или `--no-vpsadmin`).
+
+> **Один bot-токен — один сервер.** Telegram разрешает только одного поллера на
+> токен: второй сервер с тем же токеном получит `409 Conflict` и команды бота
+> перестанут доходить до обоих. Для каждого VPS заводите отдельного бота
+> (@BotFather); для тестового стенда удобно `--no-bot`.
 Остальные флаги: `--server-ip`, `--tg-domain`, `--tg-secret`, `--with-awg/--no-awg`,
 `--awg-kernel/--awg-userspace`, `--with-vpsadmin/--no-vpsadmin`, `--vpsadmin-version`
 (пин версии бинаря, дефолт `latest`), `--repo`, `--branch`. Полный список: `--help`.

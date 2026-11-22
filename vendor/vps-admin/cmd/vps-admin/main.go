@@ -48,9 +48,11 @@ func main() {
 		return
 	}
 
-	if cfg.Telegram.Token == "" || cfg.Telegram.Token == "YOUR_BOT_TOKEN_HERE" {
-		log.Fatal("Не задан telegram.token в конфиге")
-	}
+	// Бот необязателен: панель, сбор статистики и алерты-в-лог работают и без
+	// него. Нужен, например, для второго сервера под тем же админом или для
+	// тестового стенда, где нельзя занимать чужой bot-токен (Telegram разрешает
+	// только один поллер на токен — иначе 409 Conflict).
+	botEnabled := cfg.Telegram.Token != "" && cfg.Telegram.Token != "YOUR_BOT_TOKEN_HERE"
 
 	// Не даём запуститься второму экземпляру: иначе два поллера Telegram
 	// конфликтуют ("Conflict: terminated by other getUpdates request").
@@ -60,9 +62,14 @@ func main() {
 	}
 	defer release()
 
-	b, err := bot.New(cfg, st, mgr)
-	if err != nil {
-		log.Fatalf("Не удалось запустить Telegram-бота: %v", err)
+	var b *bot.Bot
+	if botEnabled {
+		b, err = bot.New(cfg, st, mgr)
+		if err != nil {
+			log.Fatalf("Не удалось запустить Telegram-бота: %v", err)
+		}
+	} else {
+		log.Println("Telegram-бот отключён (telegram.token пуст): панель и сбор работают, уведомления — только в лог")
 	}
 
 	if cfg.Prometheus.Enabled {
@@ -75,7 +82,11 @@ func main() {
 	scheduler.Start(cfg, st, reg, mgr, b)
 
 	log.Println("Сервис в рабочем режиме")
-	b.Start() // блокирует до завершения
+	if b != nil {
+		b.Start() // блокирует до завершения
+		return
+	}
+	select {} // без бота держим процесс живым
 }
 
 func startMetricsServer(host string, port int) {

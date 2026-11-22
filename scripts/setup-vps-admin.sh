@@ -102,11 +102,27 @@ journalctl -u vps-admin --no-pager -n 8 | grep -E 'собрана|бот|пан�
 
 save_env "VPSADMIN_PATH=$VPSADMIN_PATH" "VPSADMIN_PORT=$VPSADMIN_PORT"
 
-# уведомление в Telegram (необязательно, не валим установку при ошибке)
-curl -sS -m 10 "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-    -d chat_id="${BOT_CHAT}" \
-    -d text="✅ vps-admin установлен на ${SERVER_IP}. Панель: https://${SERVER_IP}${VPSADMIN_PATH} Проверь /listusers и /today." >/dev/null 2>&1 || true
+# Один bot-токен = один поллер Telegram. Если тот же токен уже стоит на другом
+# сервере, оба получат "409 Conflict: terminated by other getUpdates request".
+if [ -n "$BOT_TOKEN" ]; then
+    # уведомление в Telegram (необязательно, не валим установку при ошибке)
+    curl -sS -m 10 "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        -d chat_id="${BOT_CHAT}" \
+        -d text="✅ vps-admin установлен на ${SERVER_IP}. Панель: https://${SERVER_IP}${VPSADMIN_PATH} Проверь /listusers и /today." >/dev/null 2>&1 || true
+    sleep 8
+    if journalctl -u vps-admin --since "-20s" --no-pager 2>/dev/null | grep -q 'Conflict: terminated by other getUpdates'; then
+        warn "бот-токен уже используется другим сервером (Telegram 409 Conflict)."
+        warn "Заведите отдельного бота у @BotFather и переустановите с --bot-token/--bot-chat,"
+        warn "либо поставьте панель без бота: --no-bot (панель и сбор статистики работают)."
+    fi
+else
+    ok "Telegram-бот отключён (--no-bot): панель и сбор статистики работают без уведомлений"
+fi
 
 ok "Панель vps-admin: https://$SERVER_IP$VPSADMIN_PATH"
 ok "Пароль: $WEBPASS"
-ok "Бот: /register <имя>, /device <имя> <устройство>, /today, /listusers, /digest"
+if [ -n "$BOT_TOKEN" ]; then
+    ok "Бот: /register <имя>, /device <имя> <устройство>, /today, /listusers, /digest"
+else
+    ok "Бот выключен: управление — в веб-панели"
+fi

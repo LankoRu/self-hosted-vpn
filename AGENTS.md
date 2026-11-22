@@ -96,6 +96,9 @@ vps-admin (агрегатор). Сам vps-admin вендорится в `vendor
 - Установка на VPS: prebuilt из GitHub Releases (`setup-vps-admin.sh`, sha256-проверка,
   `VPSADMIN_VERSION` пинит версию, дефолт latest). Релизы создаёт CI автоматически
   на push в main (ветка должна называться main).
+- **Бот один на сервер**: токен `telegram.token` можно опрашивать только из одного
+  процесса/хоста, иначе `409 Conflict` рвёт команды на обоих. Для второго сервера —
+  новый бот или `--no-bot` (панель работает без Telegram; сбор статистики идёт).
 - Деплой для разработки: `cd vendor/vps-admin && make deploy DEPLOY_HOST=root@IP`
   (кросс-сборка linux/amd64 + scp + systemd). Тесты: `go test ./...` (8 пакетов).
 - Правки vps-admin делать ТОЛЬКО в vendor; после — деплой и `git add` в self-hosted-vpn.

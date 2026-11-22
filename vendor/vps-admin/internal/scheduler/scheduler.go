@@ -33,7 +33,13 @@ const (
 
 // Start настраивает и запускает cron-задания.
 func Start(cfg *config.Config, st *store.Store, reg *registry.Registry, mgr *manager.Manager, b *bot.Bot) {
-	al := alerts.New(b)
+	// Notifier только при живом боте: typed-nil (*bot.Bot)(nil) в интерфейсе
+	// не равен nil, и алерт упал бы на вызове метода.
+	var notifier alerts.Notifier
+	if b != nil {
+		notifier = b
+	}
+	al := alerts.New(notifier)
 	// SkipIfStillRunning: медленный сбор (панель/сервис завис) не должен
 	// накладываться на следующий тик — иначе дельты задваиваются.
 	c := cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
