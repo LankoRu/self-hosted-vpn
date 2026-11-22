@@ -82,6 +82,10 @@ vps-admin (агрегатор). Сам vps-admin вендорится в `vendor
   домена-маски telemt, запасной транспорт XHTTP/gRPC. Владелец nginx SNI-карты
   `/etc/nginx/stream.d/shvpn-sni-map.conf` — vps-admin (перегенерирует из
   состояния 3x-ui + telemt; установщик создаёт её из шаблона).
+- **«Компоненты»** (вкладка Система): версии vps-admin/3x-ui/xray/telemt/AWG/nginx
+  + кнопки обновления с окном живого прогресса (async job + лог). AWG — только
+  версии (обновление модуля через установщик). Версия vps-admin вшивается
+  ldflags (CI — тег релиза, Makefile — git describe).
 - **Создание — только display_name**: логин генерится транслитом
   (`util.UsernameFromDisplay`), коллизии → -2/-3. Веб-форма и бот `/register <имя>`.
 - Установка на VPS: prebuilt из GitHub Releases (`setup-vps-admin.sh`, sha256-проверка,

@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LankoRu/vps-admin/internal/components"
 	"github.com/LankoRu/vps-admin/internal/config"
 	"github.com/LankoRu/vps-admin/internal/manager"
 	"github.com/LankoRu/vps-admin/internal/service"
@@ -70,15 +71,16 @@ type Server struct {
 	cfg          *config.Config
 	store        *store.Store
 	mgr          *manager.Manager
-	sessionToken string        // валидное значение cookie после входа
-	limiter      *loginLimiter // защита входа от перебора пароля
+	comp         *components.Runner // версии/обновления компонентов стека
+	sessionToken string             // валидное значение cookie после входа
+	limiter      *loginLimiter      // защита входа от перебора пароля
 }
 
 func New(cfg *config.Config, st *store.Store, mgr *manager.Manager) *Server {
 	// Токен сессии детерминирован от пароля: стабилен между рестартами (деплой
 	// не разлогинивает), но автоматически инвалидируется при смене пароля.
 	sum := sha256.Sum256([]byte("vps-admin-session\x00" + cfg.Web.Password))
-	return &Server{cfg: cfg, store: st, mgr: mgr,
+	return &Server{cfg: cfg, store: st, mgr: mgr, comp: components.NewRunner(cfg),
 		sessionToken: hex.EncodeToString(sum[:]), limiter: newLoginLimiter()}
 }
 
@@ -393,6 +395,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/users/{username}", s.handleDeleteUser)
 	mux.HandleFunc("POST /api/users/{username}/regenerate", s.handleRegenerate)
 	mux.HandleFunc("GET /api/connections", s.handleConnectionsState)
+	mux.HandleFunc("GET /api/components", s.handleComponents)
+	mux.HandleFunc("POST /api/components/{name}/update", s.handleComponentUpdate)
 	mux.HandleFunc("POST /api/connections/reality", s.handleConnectionsReality)
 	mux.HandleFunc("POST /api/connections/telemt", s.handleConnectionsTelemt)
 	mux.HandleFunc("POST /api/connections/backup", s.handleConnectionsBackup)
@@ -705,32 +709,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"users":        users,
 		"auth":         s.cfg.Web.Password != "",  // есть ли что «разлогинивать»
 		"provisioners": s.mgr.ProvisionServices(), // сервисы с регистрацией/перегенерацией
-		"panels":       s.panelLinks(),            // ссылки на админки других сервисов
 	})
-}
-
-// panelLinks — ссылки на админки других сервисов для шапки панели.
-// Публичный адрес выводим из конфига в рантайме (public_host / хост sub_url +
-// web_base_path панели 3x-ui) — отдельных полей конфига не добавляем.
-// Отдаётся только в авторизованном overview; на публичную страницу /p/ не попадает.
-func (s *Server) panelLinks() []map[string]string {
-	host := strings.TrimSpace(s.cfg.Xray3xUI.PublicHost)
-	if host == "" && s.cfg.Xray3xUI.SubURL != "" {
-		if u, err := url.Parse(s.cfg.Xray3xUI.SubURL); err == nil {
-			host = u.Hostname()
-		}
-	}
-	if host == "" {
-		host = strings.TrimSpace(s.cfg.AmneziaWG3xUI.PublicHost)
-	}
-	if host == "" {
-		return nil
-	}
-	u := "https://" + host + "/"
-	if path := strings.Trim(s.cfg.Xray3xUI.WebBasePath, "/"); path != "" {
-		u += path + "/"
-	}
-	return []map[string]string{{"label": "3x-ui", "url": u}}
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {

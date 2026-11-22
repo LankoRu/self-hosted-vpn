@@ -637,16 +637,17 @@ func TestCreateUserNoProvisioners(t *testing.T) {
 	}
 }
 
-func TestOverviewPanelLinks(t *testing.T) {
-	// Ссылки на админки выводятся из конфига (public_host + web_base_path),
-	// отдельных полей конфига нет; без хоста — ссылок нет.
+func TestComponentPageLinks(t *testing.T) {
+	// Ссылки на другие веб-страницы стека — в разделе «Компоненты»
+	// (/api/components), не в шапке. Ссылки на саму эту панель нет.
 	cases := []struct {
-		name, host, subURL, basePath, want string
+		name, host, subURL, basePath string
+		wantPanel, wantSub           bool
 	}{
-		{"public_host + путь", "203.0.113.5", "", "panel123", "https://203.0.113.5/panel123/"},
-		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", "https://vpn.example.com/"},
-		{"путь со слэшами", "203.0.113.5", "", "/panel123/", "https://203.0.113.5/panel123/"},
-		{"нет хоста — нет ссылок", "", "", "panel123", ""},
+		{"public_host + путь", "203.0.113.5", "", "panel123", true, false},
+		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", true, true},
+		{"путь со слэшами", "203.0.113.5", "", "/panel123/", true, false},
+		{"нет хоста — ссылок нет", "", "", "panel123", false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -663,21 +664,33 @@ func TestOverviewPanelLinks(t *testing.T) {
 			ts := httptest.NewServer(New(cfg, st, manager.New(st, registry.New(cfg, st))).Handler())
 			t.Cleanup(ts.Close)
 
-			var ov struct {
-				Panels []struct {
+			var resp struct {
+				Links []struct {
 					Label string `json:"label"`
 					URL   string `json:"url"`
-				} `json:"panels"`
+				} `json:"links"`
 			}
-			getJSON(t, ts.URL+"/api/overview", &ov)
-			if c.want == "" {
-				if len(ov.Panels) != 0 {
-					t.Errorf("ожидалось без ссылок, получено %v", ov.Panels)
+			getJSON(t, ts.URL+"/api/components", &resp)
+			var panel, sub string
+			for _, l := range resp.Links {
+				if strings.Contains(l.Label, "панель") {
+					panel = l.URL
 				}
-				return
+				if l.Label == "Подписки" {
+					sub = l.URL
+				}
+				if strings.Contains(l.Label, "эта панель") {
+					t.Errorf("ссылка на саму панель не нужна: %v", l)
+				}
 			}
-			if len(ov.Panels) != 1 || ov.Panels[0].URL != c.want || ov.Panels[0].Label != "3x-ui" {
-				t.Errorf("panels = %v, ожидался 3x-ui %s", ov.Panels, c.want)
+			if c.wantPanel && !strings.HasPrefix(panel, "https://") {
+				t.Errorf("нет ссылки на панель 3x-ui: %v", resp.Links)
+			}
+			if !c.wantPanel && panel != "" {
+				t.Errorf("не ожидалась ссылка на 3x-ui: %q", panel)
+			}
+			if c.wantSub && sub != c.subURL {
+				t.Errorf("подписки = %q, want %q", sub, c.subURL)
 			}
 		})
 	}
@@ -967,4 +980,60 @@ func TestConnectionsAPI(t *testing.T) {
 		t.Errorf("empty backup sni status = %d, want 400", r5.StatusCode)
 	}
 	r5.Body.Close()
+}
+
+func TestComponentsAPI(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetDefaults()
+	st, err := store.New(filepath.Join(t.TempDir(), "test.db"), cfg)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ts := httptest.NewServer(New(cfg, st, manager.New(st, registry.New(cfg, st))).Handler())
+	t.Cleanup(ts.Close)
+
+	r, err := http.Get(ts.URL + "/api/components")
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("GET components: %v status=%d", err, r.StatusCode)
+	}
+	var resp struct {
+		Components []struct {
+			Name      string `json:"name"`
+			Updatable bool   `json:"updatable"`
+		} `json:"components"`
+		Links []struct {
+			Label string `json:"label"`
+			URL   string `json:"url"`
+		} `json:"links"`
+	}
+	json.NewDecoder(r.Body).Decode(&resp)
+	r.Body.Close()
+	list := resp.Components
+	if len(list) != 6 {
+		t.Fatalf("компонентов = %d, want 6", len(list))
+	}
+	byName := map[string]bool{}
+	for _, c := range list {
+		byName[c.Name] = c.Updatable
+	}
+	if !byName["vps-admin"] || !byName["3x-ui"] || !byName["xray"] || !byName["telemt"] || !byName["nginx"] {
+		t.Errorf("updatable = %v", byName)
+	}
+	if byName["amneziawg"] {
+		t.Error("amneziawg не должен быть updatable")
+	}
+
+	// неизвестный компонент → 400
+	r2, _ := http.Post(ts.URL+"/api/components/bogus/update", "application/json", nil)
+	if r2.StatusCode != http.StatusBadRequest {
+		t.Errorf("bogus update status = %d, want 400", r2.StatusCode)
+	}
+	r2.Body.Close()
+	// awg → 400 (только версии)
+	r3, _ := http.Post(ts.URL+"/api/components/amneziawg/update", "application/json", nil)
+	if r3.StatusCode != http.StatusBadRequest {
+		t.Errorf("awg update status = %d, want 400", r3.StatusCode)
+	}
+	r3.Body.Close()
 }

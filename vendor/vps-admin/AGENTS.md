@@ -47,6 +47,8 @@ internal/registry    builds enabled services; exposes Collectors() + Provisioner
 internal/manager     Register/Delete a user across ALL services (used by bot AND web)
 internal/bot         Telegram: reports + /register, /device, /deldevice, /regen, /regenall, /deluser
 internal/nginxmap    регенерация SNI-карты nginx stream (shvpn-sni-map.conf)
+internal/components  версии компонентов стека + async-обновления с живым логом
+internal/version     версия бинаря (ldflags: CI — тег, Makefile — git describe)
 internal/web         HTTP API + embedded SPA (go:embed static/index.html); login+password (фикс. логин web.login)
 internal/scheduler   cron: collect every 5m, link refresh hourly, cleanup, vacuum, weekly digest
 internal/report      formats summaries; Row type + HumanBytes
@@ -213,6 +215,22 @@ REPLACE по той же строке identities). Порядок строго D
   панель перезапускает xray-core). telemt: Domain/SetDomain/RefreshItems
   (секрет для RefreshItems читается из [access.users] toml). Тестовые хуки:
   nginxMapPath/nginxReload/probeReality/probeMask (manager), restartTelemt (telemt).
+- **«Компоненты» (Система)** — `internal/components`, API `GET /api/components`,
+  `POST /api/components/{name}/update`. Версии: vps-admin (internal/version,
+  ldflags), 3x-ui (getPanelUpdateInfo: current/latest/updateAvailable), xray
+  (бинарь -version + getXrayVersion), telemt (--version + GitHub tag), awg
+  (tools + modinfo, НЕ обновляется из панели — DKMS-флоу установщика), nginx
+  (nginx -v). Обновления async (job + лог в буфере, UI опрашивает и показывает
+  окно прогресса): vps-admin — self-update из Releases своего репо (sha256,
+  атомарная замена, отложенный restart через 2с — ответ успевает уйти; после
+  restart job-состояние теряется, UI судит по смене версии), 3x-ui — POST
+  /server/updatePanel (официальный, данные сохраняются; обрыв соединения при
+  restart панели — ожидаем, поллинг возврата), xray — POST
+  /server/installXray/<latest> (официальный механизм панели), telemt — бинарь
+  из GitHub Releases (tar.gz + .sha256, конфиг/юзеры не трогаются), nginx —
+  apt --only-upgrade. GitHub-теги кэшируются 10 мин (rate limit 60/ч).
+  Конфиг: `update.github_repo`/`update.github_token` (приватный репо).
+  Тестовый хук: execCommand (exec.CommandContext).
 - **telemt** (github.com/telemt/telemt, Rust): control-API. `POST /v1/users`
   creates the user AND writes it into telemt's `config.toml`; telemt returns the
   ready `dd`/`ee` tg:// links (`links.secure` / `links.tls`) built from its own

@@ -50,7 +50,7 @@ prometheus:
 web:
   enabled: true
   listen: "127.0.0.1:__VPSADMIN_PORT__"
-  login: "admi"
+  login: "admin"
   password: "__WEBPASS__"
   tls:
     enabled: false

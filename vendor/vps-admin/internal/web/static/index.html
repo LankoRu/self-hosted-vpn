@@ -251,7 +251,7 @@
       <button data-t="dark" title="Тёмная">🌙</button>
       <button data-t="system" title="Системная">🖥️</button>
     </div>
-    <span id="panellinks"></span>
+    <span id="panellinks" style="display:none"></span>
     <button class="ghost" id="logout" title="Выйти" style="display:none;padding:6px 12px">Выйти</button>
   </div>
 </header>
@@ -319,6 +319,11 @@
   </div>
 
   <div id="view-system" style="display:none">
+    <div class="card" style="margin-bottom:16px">
+      <h2 style="margin:0 0 10px">Компоненты</h2>
+      <div id="components"></div>
+      <div id="componentLinks" class="form-row" style="flex-wrap:wrap;gap:8px;margin-top:14px"></div>
+    </div>
     <div class="card" id="syscard" style="display:none;margin-bottom:16px">
       <h2>Ресурсы сервера</h2>
       <div id="sysbody"></div>
@@ -344,6 +349,9 @@
 
 <div class="overlay" id="overlay">
   <div class="modal" id="modal"></div>
+</div>
+<div class="overlay" id="compOverlay">
+  <div class="modal" id="compModal"></div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="chart-tip" id="chartTip"></div>
@@ -404,10 +412,6 @@ async function loadOverview(){
     `<div class="row"><span>${i+1}. ${esc(u.service)}</span><span class="bytes">${fmtBytes(u.bytes)}</span></div>`
   ).join("") : `<div class="empty">Нет данных за период.</div>`;
   $("#logout").style.display = d.auth ? "" : "none"; // кнопка выхода — только если задан пароль
-  // ссылки на админки других сервисов (из авторизованного overview)
-  $("#panellinks").innerHTML = (d.panels||[]).map(p=>
-    `<a class="ghost" href="${esc(p.url)}" target="_blank" rel="noopener" title="Открыть в новой вкладке">${esc(p.label)} ↗</a>`
-  ).join("");
   renderMaint(d.provisioners||[]);
 }
 
@@ -1111,7 +1115,7 @@ function switchView(v, push=true){
   const p = $("#periods");
   p.style.display = v==="overview" ? "" : "none";
   if(push) history.replaceState(null,"","#"+v);
-  if(v==="system") loadSystem().catch(()=>{});
+  if(v==="system"){ loadSystem().catch(()=>{}); loadComponents().catch(()=>{}); }
   closeMenu();
 }
 $("#mainTabs").addEventListener("click", e=>{ const v=e.target.dataset.v; if(v) switchView(v); });
@@ -1256,6 +1260,97 @@ async function applyBackup(){
   loadConnections();
 }
 
+// ---------------------------------------------------------------------------
+// «Компоненты»: версии + обновления с окном живого прогресса.
+// ---------------------------------------------------------------------------
+let compPoll = null;
+async function loadComponents(){
+  let resp;
+  try { resp = await api("GET", "/api/components"); }
+  catch(e){ $("#components").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const list = resp.components || resp;
+  // Ссылки на все веб-страницы стека живут здесь (в шапке их больше нет).
+  const links = resp.links || [];
+  $("#componentLinks").innerHTML = links.length
+    ? links.map(l=>`<a class="ghost" href="${esc(l.url)}" target="_blank" rel="noopener"
+        title="Открыть в новой вкладке">${esc(l.label)} ↗</a>`).join("")
+    : `<span class="muted" style="font-size:12px">Ссылки на страницы появятся после заполнения public_url / sub_url в конфиге</span>`;
+  $("#components").innerHTML = list.map(c=>{
+    const job = c.job;
+    const running = job && job.state==="running";
+    // Стрелка «→ latest» и кнопка — только когда есть разница версий;
+    // при совпадении — «✓ актуально» (кнопка провоцировала лишние рестарты).
+    const sameVer = c.latest && c.version===c.latest;
+    const ver = esc(c.version||"—") + (c.latest && !sameVer ? ` <span class="muted">→ ${esc(c.latest)}</span>` : "");
+    const badge = c.update_available ? ' <span class="chip" style="color:var(--warn)">доступно обновление</span>' : "";
+    const state = job && job.state==="error" ? ' <span style="color:var(--red)">ошибка</span>'
+      : (job && job.state==="done" ? ' <span style="color:var(--green)">готово</span>' : "");
+    const btn = !c.updatable ? `<span class="muted" title="${esc(c.note||"")}">—</span>`
+      : running ? `<button class="ghost" onclick="openCompLog('${c.name}')">Прогресс…</button>`
+      : (sameVer && !c.update_available) ? `<span style="color:var(--green)">✓ актуально</span>`
+      : `<button class="ghost${c.update_available?" warnbtn":""}" title="${esc(c.note||"")}" onclick="updateComponent('${c.name}')">Обновить</button>`;
+    return `<div class="row"><span><b>${esc(c.title)}</b>${badge}${state}<br><span class="muted mono">${ver}</span></span><span>${btn}</span></div>`;
+  }).join("");
+  const anyRunning = list.some(c=>c.job && c.job.state==="running");
+  if(anyRunning && !compPoll) compPoll = setInterval(()=>loadComponents().catch(()=>{}), 2500);
+  if(!anyRunning && compPoll){ clearInterval(compPoll); compPoll = null; }
+}
+
+let compWatch = null; // {name, timer, startVersion}
+async function updateComponent(name){
+  if(!confirm("Обновить «"+name+"» до последней версии?\n\nОткроется окно прогресса. Сервис может кратковременно прерваться.")) return;
+  try { await api("POST", "/api/components/"+encodeURIComponent(name)+"/update"); }
+  catch(e){ toast(e.message); return; }
+  openCompLog(name);
+}
+function openCompLog(name){
+  stopCompWatch();
+  compWatch = {name, startVersion:null, timer:null};
+  $("#compModal").innerHTML = `
+    <div class="row" style="border:none;padding-top:0">
+      <h3 style="margin:0">Обновление: ${esc(name)}</h3>
+      <button class="close" onclick="closeCompLog()">×</button></div>
+    <div id="compState" class="muted" style="margin:6px 0">запуск…</div>
+    <pre id="compLog" style="max-height:50vh;overflow:auto;background:var(--code-bg);color:var(--code-fg);padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>`;
+  $("#compOverlay").classList.add("show");
+  pollCompLog();
+  compWatch.timer = setInterval(pollCompLog, 2000);
+}
+async function pollCompLog(){
+  if(!compWatch) return;
+  let list;
+  try { const resp = await api("GET", "/api/components"); list = resp.components || resp; }
+  catch(e){
+    // vps-admin перезапускает сам себя — обрыв связи ожидаем.
+    const st = $("#compState"); if(st) st.textContent = "сервис перезапускается, ожидание…";
+    return;
+  }
+  const c = list.find(x=>x.name===compWatch.name);
+  if(!c) return;
+  if(compWatch.startVersion===null) compWatch.startVersion = c.version;
+  const log = $("#compLog"), st = $("#compState");
+  if(!log || !st) return;
+  if(c.job){
+    log.textContent = c.job.log || "";
+    log.scrollTop = log.scrollHeight;
+    if(c.job.state==="running"){ st.textContent = "выполняется…"; return; }
+    if(c.job.state==="error"){ st.innerHTML = '<span style="color:var(--red)">Ошибка — подробности в логе</span>'; stopCompWatch(); loadComponents(); return; }
+    st.innerHTML = '<span style="color:var(--green)">Готово</span>' +
+      (c.version!==compWatch.startVersion ? ` · ${esc(compWatch.startVersion)} → ${esc(c.version)}` : "");
+    stopCompWatch(); loadComponents(); return;
+  }
+  // job исчез (self-restart vps-admin сбросил состояние) — судим по версии.
+  if(c.version !== compWatch.startVersion){
+    st.innerHTML = '<span style="color:var(--green)">Обновлено до '+esc(c.version)+'</span>';
+    log.textContent += "\n>>> Сервис перезапущен, новая версия: "+c.version;
+    stopCompWatch(); loadComponents(); return;
+  }
+  st.textContent = "ожидание…";
+}
+function stopCompWatch(){ if(compWatch && compWatch.timer) clearInterval(compWatch.timer); }
+function closeCompLog(){ stopCompWatch(); compWatch=null; $("#compOverlay").classList.remove("show"); loadComponents().catch(()=>{}); }
+$("#compOverlay").addEventListener("click", e=>{ if(e.target.id==="compOverlay") closeCompLog(); });
+
 if("serviceWorker" in navigator && window.isSecureContext){
   window.addEventListener("load", ()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
 }
@@ -1273,6 +1368,7 @@ setInterval(()=>{
   loadOverview().catch(()=>{});
   loadUsers().catch(()=>{});
   loadCharts().catch(()=>{});
+  if(view==="system") loadComponents().catch(()=>{});
 }, REFRESH_MS);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refresh().catch(()=>{}); });
 </script>
