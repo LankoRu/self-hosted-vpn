@@ -230,8 +230,10 @@ func TestUpdateRealityNewFormat(t *testing.T) {
 	if rs["target"] != "www.apple.com:443" {
 		t.Errorf("target = %v (ожидался host:443)", rs["target"])
 	}
-	if _, hasDest := rs["dest"]; hasDest {
-		t.Error("в новом формате не должно быть dest")
+	// Пишем и legacy dest: иначе в инбаунде остаётся старый домен и следующее
+	// применение формы (UI подставляет прочитанный dest) откатывает ротацию.
+	if rs["dest"] != "www.apple.com:443" {
+		t.Errorf("dest = %v, ожидался синхронный с target", rs["dest"])
 	}
 	nested := rs["settings"].(map[string]interface{})
 	if nested["fingerprint"] != "safari" || nested["publicKey"] != "PUB" {
@@ -258,5 +260,42 @@ func TestSetEnabled(t *testing.T) {
 	}
 	if body["enable"] != false {
 		t.Errorf("enable = %v", body["enable"])
+	}
+}
+
+func TestRealityPrefersTargetAndWritesBoth(t *testing.T) {
+	// Инбаунд, где target и dest расходятся (результат старого бага).
+	const divergent = `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.google.com:443","target":"www.apple.com:443","serverNames":["www.apple.com"],"privateKey":"PRIV","settings":{"publicKey":"PUB","fingerprint":"chrome"}}}`
+	list := panelWithInbound(divergent)
+	var updateBody map[string]interface{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/inbounds/update/1") {
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &updateBody)
+			fmt.Fprint(w, `{"success":true}`)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "obj": list})
+	}))
+	defer ts.Close()
+
+	s := connSvc(ts.URL)
+	// Читаем target (приоритет xray-core), а не устаревший dest.
+	cur, err := s.Reality(1)
+	if err != nil {
+		t.Fatalf("Reality: %v", err)
+	}
+	if cur.Dest != "www.apple.com:443" {
+		t.Errorf("Dest = %q, ожидался target (www.apple.com:443)", cur.Dest)
+	}
+	// Повторное применение без изменения dest не должно откатывать target.
+	if err := s.UpdateReality(1, &service.RealitySettings{ServerNames: []string{"www.apple.com", "itunes.apple.com"}, Dest: cur.Dest}); err != nil {
+		t.Fatalf("UpdateReality: %v", err)
+	}
+	var stream map[string]interface{}
+	_ = json.Unmarshal([]byte(updateBody["streamSettings"].(string)), &stream)
+	rs := stream["realitySettings"].(map[string]interface{})
+	if rs["target"] != "www.apple.com:443" || rs["dest"] != "www.apple.com:443" {
+		t.Errorf("после повторного применения target=%v dest=%v (ожидались apple в обоих)", rs["target"], rs["dest"])
 	}
 }

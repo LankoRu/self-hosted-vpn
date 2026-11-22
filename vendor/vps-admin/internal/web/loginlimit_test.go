@@ -130,3 +130,20 @@ func TestPWAAssetsPublic(t *testing.T) {
 		t.Errorf("API без входа: status %d, ожидался 401", r.StatusCode)
 	}
 }
+
+func TestClientIPTrustsForwardedFromLoopback(t *testing.T) {
+	// За nginx RemoteAddr = 127.0.0.1: реальный IP приходит в X-Real-IP.
+	req := httptest.NewRequest("POST", "/api/login", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set("X-Real-IP", "203.0.113.7")
+	if got := clientIP(req); got != "203.0.113.7" {
+		t.Errorf("clientIP за прокси = %q, want 203.0.113.7", got)
+	}
+	// Прямое подключение: заголовок подделываем — игнорируем.
+	req2 := httptest.NewRequest("POST", "/api/login", nil)
+	req2.RemoteAddr = "198.51.100.9:1234"
+	req2.Header.Set("X-Real-IP", "203.0.113.7")
+	if got := clientIP(req2); got != "198.51.100.9" {
+		t.Errorf("clientIP напрямую = %q, want 198.51.100.9", got)
+	}
+}

@@ -52,6 +52,7 @@ update:
 prometheus:
   port: 2112
   enabled: true
+  listen: "127.0.0.1"   # /metrics без авторизации — наружу не выставлять
 
 web:
   enabled: true

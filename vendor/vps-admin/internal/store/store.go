@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/LankoRu/vps-admin/internal/config"
@@ -20,6 +21,8 @@ type Store struct {
 	*sql.DB
 	Path string
 	cfg  *config.Config
+	// deltaMu сериализует UpdateDeltas (read-modify-write baseline'а).
+	deltaMu sync.Mutex
 }
 
 // User — каноничный пользователь, единый для всех сервисов.
@@ -346,6 +349,10 @@ func (s *Store) refreshUserCount() {
 // UpdateDeltas обновляет накопленную статистику по сервису с защитой от
 // сброса счётчиков (перезапуск сервиса обнуляет счётчик — не считаем это трафиком).
 func (s *Store) UpdateDeltas(service string, traffic map[string]uint64) {
+	// Сериализуем read-modify-write: два параллельных сбора (тик крона + стартовый)
+	// иначе читали один baseline и записывали одну и ту же дельту дважды.
+	s.deltaMu.Lock()
+	defer s.deltaMu.Unlock()
 	now := time.Now().Format("2006-01-02 15:04:05")
 
 	for identity, current := range traffic {
@@ -374,16 +381,36 @@ func (s *Store) UpdateDeltas(service string, traffic map[string]uint64) {
 			}
 		}
 
+		// Дельта и baseline — одной транзакцией: иначе при ошибке записи
+		// baseline сдвигался бы, а дельта терялась навсегда.
+		tx, err := s.Begin()
+		if err != nil {
+			log.Printf("трафик %s/%s: begin: %v", service, identity, err)
+			continue
+		}
 		if delta > 0 {
-			_, _ = s.Exec(
+			if _, err := tx.Exec(
 				`INSERT INTO traffic_deltas (service, identity, total_bytes) VALUES (?,?,?)`,
-				service, identity, delta)
+				service, identity, delta); err != nil {
+				log.Printf("трафик %s/%s: delta не записана: %v", service, identity, err)
+				_ = tx.Rollback()
+				continue
+			}
+		}
+		if _, err := tx.Exec(
+			`INSERT OR REPLACE INTO stats_cache (service, identity, last_total, last_poll_time)
+			 VALUES (?,?,?,?)`, service, identity, current, now); err != nil {
+			log.Printf("трафик %s/%s: baseline не записан: %v", service, identity, err)
+			_ = tx.Rollback()
+			continue
+		}
+		if err := tx.Commit(); err != nil {
+			log.Printf("трафик %s/%s: commit: %v", service, identity, err)
+			continue
+		}
+		if delta > 0 {
 			metrics.TrafficTotal.WithLabelValues(service, identity).Add(float64(delta))
 		}
-
-		_, _ = s.Exec(
-			`INSERT OR REPLACE INTO stats_cache (service, identity, last_total, last_poll_time)
-			 VALUES (?,?,?,?)`, service, identity, current, now)
 	}
 }
 

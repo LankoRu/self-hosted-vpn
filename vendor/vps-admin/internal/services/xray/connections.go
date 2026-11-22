@@ -92,9 +92,11 @@ func (s *Service) Reality(inboundID int) (*service.RealitySettings, error) {
 		return nil, err
 	}
 	out := &service.RealitySettings{}
-	out.Dest, _ = rs["dest"].(string)
+	// xray-core отдаёт приоритет target (он перекрывает dest). Читаем так же,
+	// иначе UI показывал бы и применял устаревший dest → откат на заблокированный домен.
+	out.Dest, _ = rs["target"].(string)
 	if out.Dest == "" {
-		out.Dest, _ = rs["target"].(string)
+		out.Dest, _ = rs["dest"].(string)
 	}
 	out.Fingerprint, _ = rs["fingerprint"].(string)
 	out.PublicKey, _ = rs["publicKey"].(string)
@@ -165,32 +167,24 @@ func (s *Service) UpdateReality(inboundID int, rs *service.RealitySettings) erro
 		return err
 	}
 	if rs.Dest != "" {
-		// новый формат (Xray 25.x): target + settings.fingerprint;
-		// старый: dest + fingerprint на верхнем уровне.
-		if _, isNew := reality["target"]; isNew {
-			reality["target"] = withPort(rs.Dest)
-			nested, _ := reality["settings"].(map[string]interface{})
-			if nested == nil {
-				nested = map[string]interface{}{}
-			}
-			if rs.Fingerprint != "" {
-				nested["fingerprint"] = rs.Fingerprint
-			}
-			reality["settings"] = nested
-		} else {
-			reality["dest"] = withPort(rs.Dest)
-			if rs.Fingerprint != "" {
-				reality["fingerprint"] = rs.Fingerprint
-			}
-		}
+		// Пишем ОБА ключа (target — приоритетный для xray-core, dest — legacy):
+		// иначе в инбаунде остаётся старый dest, и следующее применение формы
+		// (UI подставляет прочитанное значение) вернёт заблокированный домен.
+		dest := withPort(rs.Dest)
+		reality["target"] = dest
+		reality["dest"] = dest
 	}
 	if len(rs.ServerNames) > 0 {
 		reality["serverNames"] = rs.ServerNames
 	}
 	if rs.Fingerprint != "" {
-		if _, isNew := reality["target"]; !isNew {
-			reality["fingerprint"] = rs.Fingerprint
+		reality["fingerprint"] = rs.Fingerprint
+		nested, _ := reality["settings"].(map[string]interface{})
+		if nested == nil {
+			nested = map[string]interface{}{}
 		}
+		nested["fingerprint"] = rs.Fingerprint
+		reality["settings"] = nested
 	}
 	stream["realitySettings"] = reality
 	return s.updateInbound(ib, stream)

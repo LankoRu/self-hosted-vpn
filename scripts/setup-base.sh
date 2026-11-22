@@ -23,7 +23,7 @@ export DEBIAN_FRONTEND=noninteractive
 # ----------------------------------------------------------------------------
 step "1/9 Зависимости"
 apt-get update -qq
-apt-get install -y -qq nginx libnginx-mod-stream sqlite3 python3 curl openssl git >/dev/null
+apt-get install -y -qq nginx libnginx-mod-stream sqlite3 python3 curl openssl git ufw >/dev/null
 ensure_swap
 
 # ----------------------------------------------------------------------------
@@ -143,8 +143,10 @@ PYEOF
 # ----------------------------------------------------------------------------
 step "6/9 telemt (Telegram MTProto, 127.0.0.1:$TELEMT_PORT)"
 if ! command -v telemt >/dev/null 2>&1; then
+    # -l en обязателен: без него установщик telemt спрашивает язык через
+    # `read </dev/tty` и вешает неинтерактивную установку (--yes / curl|bash).
     curl -fsSL https://raw.githubusercontent.com/telemt/telemt/main/install.sh \
-        | sh -s -- -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN"
+        | sh -s -- -l en -p "$TELEMT_PORT" -s "$TG_SECRET" -d "$TG_DOMAIN"
 fi
 systemctl stop telemt 2>/dev/null || true
 mkdir -p /etc/nginx/stream.d /var/www/shvpn
@@ -194,9 +196,21 @@ if [ ! -x "$ACME" ]; then
 fi
 [ -x "$ACME" ] || die "acme.sh не установился"
 if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
+    # Let's Encrypt для bare-IP выдаёт серты ТОЛЬКО из профиля shortlived
+    # (6 дней, продление автоматически). Без профиля LE откажет.
+    # --standalone требует свободный :80, а nginx уже слушает его — гасим на время.
     ufw allow 80/tcp >/dev/null 2>&1 || true
-    "$ACME" --issue --standalone -d "$SERVER_IP" --ecc --server letsencrypt --force \
-        || { ufw delete allow 80/tcp >/dev/null 2>&1 || true; die "выпуск сертификата не удался"; }
+    NGINX_WAS_ACTIVE=0
+    systemctl is-active --quiet nginx && NGINX_WAS_ACTIVE=1
+    [ "$NGINX_WAS_ACTIVE" = "1" ] && systemctl stop nginx
+    "$ACME" --issue --standalone -d "$SERVER_IP" --ecc --server letsencrypt \
+        --certificate-profile shortlived --force \
+        || {
+            [ "$NGINX_WAS_ACTIVE" = "1" ] && systemctl start nginx
+            ufw delete allow 80/tcp >/dev/null 2>&1 || true
+            die "выпуск сертификата не удался (нужен свободный :80 и профиль shortlived)"
+        }
+    [ "$NGINX_WAS_ACTIVE" = "1" ] && systemctl start nginx
     ufw delete allow 80/tcp >/dev/null 2>&1 || true
 fi
 "$ACME" --install-cert -d "$SERVER_IP" --ecc \

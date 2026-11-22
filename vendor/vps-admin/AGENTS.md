@@ -230,7 +230,14 @@ REPLACE по той же строке identities). Порядок строго D
   из GitHub Releases (tar.gz + .sha256, конфиг/юзеры не трогаются), nginx —
   apt --only-upgrade. GitHub-теги кэшируются 10 мин (rate limit 60/ч).
   Конфиг: `update.github_repo`/`update.github_token` (приватный репо).
-  Тестовый хук: execCommand (exec.CommandContext).
+  Тестовый хук: Runner.cmd (поле, не глобал — иначе гонка с goroutine job'а).
+  Паника в горутине job'а перехватывается recover: ошибка обновления не должна
+  ронять процесс (бот/панель/сбор живут в нём же).
+- **Откаты провижининга**: если `AddIdentity` падает после успешного Provision —
+  учётка в сервисе удаляется (иначе сирота: трафик «не привязан», логин занят);
+  в `Regenerate` при сбое пересоздания старая учётка восстанавливается.
+- **Трафик без задвоения**: `cron.SkipIfStillRunning` + `Store.deltaMu` +
+  транзакция (дельта и baseline пишутся вместе).
 - **telemt** (github.com/telemt/telemt, Rust): control-API. `POST /v1/users`
   creates the user AND writes it into telemt's `config.toml`; telemt returns the
   ready `dd`/`ee` tg:// links (`links.secure` / `links.tls`) built from its own
@@ -289,6 +296,12 @@ REPLACE по той же строке identities). Порядок строго D
   cookie, за авторизацией он получил бы HTML формы входа и установка не
   предлагалась бы. `mime.AddExtensionType(".webmanifest", …)` в `init()` — Go не
   знает это расширение, а без верного MIME манифест не примут.
+- **Rate-limit входа — по реальному IP**: за nginx `RemoteAddr` всегда 127.0.0.1,
+  поэтому `clientIP` берёт `X-Real-IP` **только от loopback** (ставит наш nginx;
+  прямой клиент подделать заголовок не может). Иначе 5 неверных паролей от кого
+  угодно блокировали бы вход всем.
+- **Prometheus слушает 127.0.0.1** (`prometheus.listen`): `/metrics` без
+  аутентификации, наружу выставлять нельзя.
 - Web auth: **фиксированный логин (`web.login`, дефолт `admi`) + пароль**. Форма
   входа — нативный `<form method=post action=/api/login>` с полями
   `autocomplete="username"` (readonly, подставляется из конфига) и
