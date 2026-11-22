@@ -36,6 +36,15 @@ for pair in "y:1" "Y:1" "yes:1" "да:1" "n:0" "no:0" "x:0"; do
     check "ответ '$ans' → $want" "$want" "$got"
 done
 
+# Рендер шаблона: соседние плейсхолдеры не должны склеиваться в одно имя
+tmpdir=$(mktemp -d)
+printf 'sub_url: "https://__SERVER_IP____SUB_PATH__"\nhost: "__SERVER_IP__"\n' > "$tmpdir/t.tpl"
+SERVER_IP=1.2.3.4 SUB_PATH=/sub render_tpl "$tmpdir/t.tpl" "$tmpdir/out" >/dev/null
+expected='sub_url: "https://1.2.3.4/sub"'
+got=$(head -1 "$tmpdir/out")
+check "render_tpl: соседние плейсхолдеры" "$expected" "$got"
+rm -rf "$tmpdir"
+
 if [ "$fails" -ne 0 ]; then
     printf 'ПРОВАЛЕНО: %d\n' "$fails" >&2
     exit 1
