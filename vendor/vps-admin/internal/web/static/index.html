@@ -1385,12 +1385,20 @@ function refresh(){ return Promise.all([loadOverview(), loadUsers(), loadSystem(
 refresh().catch(e=>toast(e.message));
 switchView(location.hash.replace("#","") || "overview", false);
 
-// Автообновление: ресурсы, трафик и графики сами подтягивают актуальные значения.
+// Автообновление. Ресурсы (CPU/память/диск/аптайм) меняются быстро — их
+// обновляем раз в 5 c, но только когда открыта вкладка «Система»: на других
+// вкладках карточки не видно, и опрос был бы лишней нагрузкой.
+const SYS_REFRESH_MS = 5000;
+setInterval(()=>{
+  if(document.hidden || view!=="system") return;
+  loadSystem().catch(()=>{});
+}, SYS_REFRESH_MS);
+
+// Остальное (обзор, пользователи, графики) — раз в 15 c.
 // Ошибки глушим — иначе при кратком обрыве сети посыпятся тосты.
 const REFRESH_MS = 15000;
 setInterval(()=>{
   if(document.hidden) return; // вкладка не активна — не дёргаем сервер
-  loadSystem().catch(()=>{});
   loadOverview().catch(()=>{});
   loadUsers().catch(()=>{});
   loadCharts().catch(()=>{});
