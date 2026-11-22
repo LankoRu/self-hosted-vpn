@@ -1271,6 +1271,7 @@ async function applyBackup(){
 // «Компоненты»: версии + обновления с окном живого прогресса.
 // ---------------------------------------------------------------------------
 let compPoll = null;
+
 async function refreshComponents(){
   try { await api("POST", "/api/components/refresh", {}); } catch(e){ toast(e.message); return; }
   toast("Проверяю обновления…");

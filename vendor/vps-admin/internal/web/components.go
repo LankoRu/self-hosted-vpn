@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/LankoRu/vps-admin/internal/components"
 )
 
 func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +22,7 @@ func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
 		"components": s.comp.List(),
 		"links":      s.componentLinks(), // ссылки на все веб-страницы стека
 		"checked_at": checked,            // когда снимок обновлялся ("" — ещё нет)
-		"interval":   int(components.RefreshInterval.Seconds()),
+		"interval":   int(s.comp.RefreshInterval().Seconds()),
 	})
 }
 

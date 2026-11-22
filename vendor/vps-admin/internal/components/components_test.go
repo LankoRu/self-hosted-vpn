@@ -30,13 +30,10 @@ func TestStartUnknownComponent(t *testing.T) {
 
 func TestJobStreamsLogAndFinishes(t *testing.T) {
 	// Подменяем exec на заведомо быструю команду с выводом.
-	old := execCommand
-	execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	r := testRunner()
+	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "echo строка-раз; echo строка-два")
 	}
-	t.Cleanup(func() { execCommand = old })
-
-	r := testRunner()
 	// nginx-апдейтер состоит из streamCmd — все вызовы уйдут в фейковый exec.
 	if err := r.Start("nginx"); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -68,13 +65,10 @@ func TestJobStreamsLogAndFinishes(t *testing.T) {
 }
 
 func TestJobErrorState(t *testing.T) {
-	old := execCommand
-	execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	r := testRunner()
+	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "echo плохо >&2; exit 3")
 	}
-	t.Cleanup(func() { execCommand = old })
-
-	r := testRunner()
 	if err := r.Start("nginx"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -98,12 +92,11 @@ func TestVersionParsingHelpers(t *testing.T) {
 		t.Error("firstLine")
 	}
 	// nginx -v пишет в stderr — версия извлекается из CombinedOutput
-	old := execCommand
-	execCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+	r := testRunner()
+	r.cmd = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "echo 'nginx version: nginx/1.28.3' >&2")
 	}
-	t.Cleanup(func() { execCommand = old })
-	c := testRunner().nginx()
+	c := r.nginx()
 	if c.Version != "1.28.3" {
 		t.Errorf("nginx version = %q", c.Version)
 	}
