@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/LankoRu/vps-admin/internal/bot"
@@ -65,7 +66,7 @@ func main() {
 	}
 
 	if cfg.Prometheus.Enabled {
-		go startMetricsServer(cfg.Prometheus.Port)
+		go startMetricsServer(cfg.Prometheus.Listen, cfg.Prometheus.Port)
 	}
 	if cfg.Web.Enabled {
 		go web.New(cfg, st, mgr).Start()
@@ -77,10 +78,10 @@ func main() {
 	b.Start() // блокирует до завершения
 }
 
-func startMetricsServer(port int) {
+func startMetricsServer(host string, port int) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	addr := fmt.Sprintf(":%d", port)
+	addr := net.JoinHostPort(host, fmt.Sprint(port))
 	log.Printf("Prometheus /metrics на %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Printf("Prometheus-сервер остановлен: %v", err)

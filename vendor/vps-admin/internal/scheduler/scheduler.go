@@ -34,7 +34,9 @@ const (
 // Start настраивает и запускает cron-задания.
 func Start(cfg *config.Config, st *store.Store, reg *registry.Registry, mgr *manager.Manager, b *bot.Bot) {
 	al := alerts.New(b)
-	c := cron.New()
+	// SkipIfStillRunning: медленный сбор (панель/сервис завис) не должен
+	// накладываться на следующий тик — иначе дельты задваиваются.
+	c := cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 
 	// Сбор статистики каждые 5 минут.
 	c.AddFunc("*/5 * * * *", func() { Collect(cfg, st, reg, al) })

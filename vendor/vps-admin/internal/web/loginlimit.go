@@ -3,6 +3,7 @@ package web
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -87,7 +88,22 @@ func (l *loginLimiter) pruneLocked() {
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	// За nginx (панель слушает 127.0.0.1) RemoteAddr всегда loopback — без этого
+	// лимитер считал бы ВСЕХ одним клиентом, и 5 неверных паролей от кого угодно
+	// блокировали бы вход админу. X-Real-IP доверяем только от loopback
+	// (его ставит наш nginx), иначе заголовок можно подделать напрямую.
+	if isLoopback(host) {
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			return real
+		}
 	}
 	return host
+}
+
+// isLoopback — адрес принадлежит локальной петле.
+func isLoopback(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }

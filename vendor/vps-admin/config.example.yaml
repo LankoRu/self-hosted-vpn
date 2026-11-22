@@ -68,6 +68,7 @@ counter_reset:
 
 prometheus:
   port: 2112
+  listen: "127.0.0.1"   # адрес /metrics (без аутентификации — только loopback)
   enabled: true
 
 # Веб-панель: создание пользователей, статистика и настройки по сервисам.

@@ -56,6 +56,10 @@ def main():
     for iid, remark, port, protocol, stream_raw, enable in rows:
         if not enable:
             continue
+        # stream разбираем ДО ветвлений: AWG-ветка правит stream["externalProxy"],
+        # а объявление ниже делало UnboundLocalError (или брало stream прошлого
+        # инбаунда и портило externalProxy чужого транспорта).
+        stream = json.loads(stream_raw) if stream_raw else {}
         if protocol == "amneziawg":
             # AWG — UDP, через SNI-роутер не маршрутизируется; слушает свой порт
             # напрямую (наружу открывается в ufw). Но ссылки/подписки панель
@@ -67,7 +71,6 @@ def main():
         if protocol in ("tunnel", "dokodemo-door", "socks", "http", "mixed", "wireguard", "tuic", "hysteria"):
             warnings.append(f"inbound {iid} ({protocol}): не TCP/TLS — через SNI-роутер не маршрутизируется, пропущен")
             continue
-        stream = json.loads(stream_raw) if stream_raw else {}
         security = stream.get("security", "none")
         xray_ports.append(port)
 

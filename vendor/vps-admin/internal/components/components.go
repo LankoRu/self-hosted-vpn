@@ -149,6 +149,14 @@ func (r *Runner) Start(name string) error {
 	r.mu.Unlock()
 
 	go func() {
+		// Паника в апдейтере (битый ответ GitHub, пустой sha256 и т.п.) не должна
+		// ронять весь сервис: бот и панель живут в этом же процессе.
+		defer func() {
+			if rec := recover(); rec != nil {
+				j.write(fmt.Sprintf("ОШИБКА: паника при обновлении: %v\n", rec))
+				j.finish("error")
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		j.write(fmt.Sprintf(">>> Обновление %s\n", name))
@@ -709,13 +717,25 @@ func updateXray(ctx context.Context, r *Runner, j *jobState) error {
 		case <-time.After(3 * time.Second):
 		}
 		bin := "/usr/local/x-ui/bin/xray-linux-" + runtime.GOARCH
-		if v, err := r.runOut(ctx, bin, "-version"); err == nil && strings.Contains(v, strings.TrimPrefix(latest, "v")) {
+		want := strings.TrimPrefix(latest, "v")
+		if v, err := r.runOut(ctx, bin, "-version"); err == nil && hasVersionField(v, want) {
 			j.write("Xray обновлён: " + firstLine(v) + "\n")
 			return nil
 		}
 		j.write(".")
 	}
 	return fmt.Errorf("xray не вернулся с версией %s за 3 минуты", latest)
+}
+
+// hasVersionField — точное совпадение одного из «слов» вывода с версией
+// (иначе «26.10.2» совпало бы с «26.10.21» и обновление считалось бы успешным).
+func hasVersionField(out, want string) bool {
+	for _, f := range strings.Fields(firstLine(out)) {
+		if strings.TrimSpace(f) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // updateTelemt — бинарь из GitHub Releases telemt (tar.gz + sha256), конфиг
@@ -754,7 +774,11 @@ func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
 	if err != nil {
 		return err
 	}
-	want := strings.Fields(string(sums))[0]
+	fields := strings.Fields(string(sums))
+	if len(fields) == 0 {
+		return fmt.Errorf("пустой файл .sha256 — нечего сверять")
+	}
+	want := fields[0]
 	got, err := sha256File(tmp + "/" + asset)
 	if err != nil {
 		return err

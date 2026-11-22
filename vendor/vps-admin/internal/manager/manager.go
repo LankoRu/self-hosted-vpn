@@ -85,6 +85,11 @@ func (m *Manager) Register(username, displayName string) (*store.User, []Service
 		}
 		itemsJSON, _ := json.Marshal(acc.Items)
 		if err := m.store.AddIdentity(userID, acc.Service, acc.Identity, acc.Address, string(itemsJSON)); err != nil {
+			// Учётка в сервисе уже создана — убираем её, иначе она останется
+			// сиротой: трафик «не привязан», а логин нельзя пересоздать.
+			if derr := p.Deprovision(acc.Identity); derr != nil {
+				log.Printf("[manager] %s/%s: откат после ошибки БД не удался: %v", name, acc.Identity, derr)
+			}
 			results = append(results, ServiceResult{Service: name, OK: false, Error: "identity: " + err.Error()})
 			continue
 		}
@@ -146,7 +151,10 @@ func (m *Manager) AddDevice(username, device string) (*service.Account, error) {
 	}
 	itemsJSON, _ := json.Marshal(acc.Items)
 	if err := m.store.AddIdentity(user.ID, acc.Service, acc.Identity, acc.Address, string(itemsJSON)); err != nil {
-		return nil, fmt.Errorf("устройство создано, но не сохранено в БД: %w", err)
+		if derr := p.Deprovision(acc.Identity); derr != nil {
+			log.Printf("[manager] amneziawg/%s: откат после ошибки БД не удался: %v", acc.Identity, derr)
+		}
+		return nil, fmt.Errorf("устройство не сохранено в БД (учётка откатена): %w", err)
 	}
 	log.Printf("[manager] amneziawg: устройство %q для %q создано (%s)", device, username, acc.Identity)
 	return acc, nil
@@ -218,16 +226,24 @@ func (m *Manager) Regenerate(username, svc string) (*service.Account, error) {
 		return nil, fmt.Errorf("у пользователя нет учётки в сервисе %q", svc)
 	}
 
-	// Сначала удаляем старую учётку: и xray (дубликат email), и amneziawg
-	// (клиент «уже существует») не дадут создать заново поверх живой. Ошибку
-	// удаления не считаем фатальной — на сервере учётки может уже не быть.
+	// СНАЧАЛА удаляем старую учётку (панели не дают создать дубликат email),
+	// и если создать новую не удалось — восстанавливаем старую, иначе у
+	// пользователя не работает ничего, а в БД остаются «живые» ссылки.
 	if err := p.Deprovision(identity); err != nil {
 		log.Printf("[manager] regenerate %s/%s: удаление старой учётки: %v", svc, identity, err)
 	}
 
 	acc, err := p.Provision(username)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось пересоздать учётку в %s: %w", svc, err)
+		log.Printf("[manager] regenerate %s/%s: пересоздание не удалось, откат: %v", svc, identity, err)
+		if racc, rerr := p.Provision(username); rerr == nil {
+			// вернули учётку (новые ключи) — сохраняем, чтобы конфиги были валидны
+			if items, jerr := json.Marshal(racc.Items); jerr == nil {
+				_ = m.store.AddIdentity(user.ID, racc.Service, racc.Identity, racc.Address, string(items))
+			}
+			return nil, fmt.Errorf("не удалось пересоздать учётку в %s (старая восстановлена, конфиги перевыпущены): %w", svc, err)
+		}
+		return nil, fmt.Errorf("не удалось пересоздать учётку в %s и восстановить старую — нужен /register заново: %w", svc, err)
 	}
 
 	itemsJSON, _ := json.Marshal(acc.Items)

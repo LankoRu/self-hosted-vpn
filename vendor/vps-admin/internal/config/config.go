@@ -56,6 +56,9 @@ type Config struct {
 	Prometheus struct {
 		Port    int  `yaml:"port"`
 		Enabled bool `yaml:"enabled"`
+		// Listen — адрес метрик. По умолчанию 127.0.0.1: /metrics не имеет
+		// аутентификации и не должен торчать наружу.
+		Listen string `yaml:"listen"`
 	} `yaml:"prometheus"`
 
 	// Web — веб-панель управления пользователями и статистикой.
@@ -186,6 +189,9 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Update.GithubRepo == "" {
 		c.Update.GithubRepo = "LankoRu/self-hosted-vpn"
+	}
+	if c.Prometheus.Listen == "" {
+		c.Prometheus.Listen = "127.0.0.1"
 	}
 	if c.Update.CheckInterval == "" {
 		c.Update.CheckInterval = "1h"
