@@ -17,14 +17,12 @@ func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// componentLinks — ссылки на все веб-страницы стека для раздела «Компоненты»
+// componentLinks — ссылки на другие веб-страницы стека для раздела «Компоненты»
 // (раньше 3x-ui висел в шапке; подписки и сайт-прикрытие вообще были не видны).
+// Ссылки на саму эту панель нет — она уже открыта.
 // Отдаётся только в авторизованном API.
 func (s *Server) componentLinks() []map[string]string {
 	var out []map[string]string
-	if u := strings.TrimSpace(s.cfg.Web.PublicURL); u != "" {
-		out = append(out, map[string]string{"label": "vps-admin (эта панель)", "url": u})
-	}
 	host := strings.TrimSpace(s.cfg.Xray3xUI.PublicHost)
 	if host == "" && s.cfg.Xray3xUI.SubURL != "" {
 		if u, err := url.Parse(s.cfg.Xray3xUI.SubURL); err == nil {

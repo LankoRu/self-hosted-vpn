@@ -52,6 +52,5 @@ web:
   listen: "127.0.0.1:__VPSADMIN_PORT__"
   login: "admin"
   password: "__WEBPASS__"
-  public_url: "https://__SERVER_IP____VPSADMIN_PATH__"  # ссылка на панель (для «Компонентов»)
   tls:
     enabled: false

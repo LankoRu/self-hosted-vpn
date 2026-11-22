@@ -638,16 +638,16 @@ func TestCreateUserNoProvisioners(t *testing.T) {
 }
 
 func TestComponentPageLinks(t *testing.T) {
-	// Ссылки на все веб-страницы стека живут в разделе «Компоненты»
-	// (/api/components), а не в шапке. Хост выводится из конфига.
+	// Ссылки на другие веб-страницы стека — в разделе «Компоненты»
+	// (/api/components), не в шапке. Ссылки на саму эту панель нет.
 	cases := []struct {
-		name, host, subURL, basePath, publicURL string
-		wantPanel, wantSub, wantSelf            bool
+		name, host, subURL, basePath string
+		wantPanel, wantSub           bool
 	}{
-		{"public_host + путь", "203.0.113.5", "", "panel123", "", true, false, false},
-		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", "", true, true, false},
-		{"путь со слэшами", "203.0.113.5", "", "/panel123/", "https://203.0.113.5/vps-x/", true, false, true},
-		{"нет хоста — только ссылка на себя", "", "", "", "https://1.2.3.4/vps-y/", false, false, true},
+		{"public_host + путь", "203.0.113.5", "", "panel123", true, false},
+		{"хост из sub_url", "", "https://vpn.example.com/sub/", "", true, true},
+		{"путь со слэшами", "203.0.113.5", "", "/panel123/", true, false},
+		{"нет хоста — ссылок нет", "", "", "panel123", false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -656,7 +656,6 @@ func TestComponentPageLinks(t *testing.T) {
 			cfg.Xray3xUI.PublicHost = c.host
 			cfg.Xray3xUI.SubURL = c.subURL
 			cfg.Xray3xUI.WebBasePath = c.basePath
-			cfg.Web.PublicURL = c.publicURL
 			st, err := store.New(filepath.Join(t.TempDir(), "test.db"), cfg)
 			if err != nil {
 				t.Fatalf("store: %v", err)
@@ -672,31 +671,26 @@ func TestComponentPageLinks(t *testing.T) {
 				} `json:"links"`
 			}
 			getJSON(t, ts.URL+"/api/components", &resp)
-			var panel, sub, self string
+			var panel, sub string
 			for _, l := range resp.Links {
-				switch {
-				case strings.HasPrefix(l.Label, "3x-ui"):
+				if strings.Contains(l.Label, "панель") {
 					panel = l.URL
-				case l.Label == "Подписки":
+				}
+				if l.Label == "Подписки" {
 					sub = l.URL
-				case strings.HasPrefix(l.Label, "vps-admin"):
-					self = l.URL
+				}
+				if strings.Contains(l.Label, "эта панель") {
+					t.Errorf("ссылка на саму панель не нужна: %v", l)
 				}
 			}
 			if c.wantPanel && !strings.HasPrefix(panel, "https://") {
-				t.Errorf("нет ссылки на 3x-ui: %v", resp.Links)
-			}
-			if c.wantSub && sub != c.subURL {
-				t.Errorf("подписки = %q, want %q", sub, c.subURL)
-			}
-			if c.wantSelf && self != c.publicURL {
-				t.Errorf("ссылка на себя = %q, want %q", self, c.publicURL)
+				t.Errorf("нет ссылки на панель 3x-ui: %v", resp.Links)
 			}
 			if !c.wantPanel && panel != "" {
 				t.Errorf("не ожидалась ссылка на 3x-ui: %q", panel)
 			}
-			if !c.wantSelf && self != "" {
-				t.Errorf("не ожидалась ссылка на себя: %q", self)
+			if c.wantSub && sub != c.subURL {
+				t.Errorf("подписки = %q, want %q", sub, c.subURL)
 			}
 		})
 	}

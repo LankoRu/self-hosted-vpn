@@ -61,10 +61,7 @@ type Config struct {
 		Listen   string `yaml:"listen"`   // адрес:порт (по умолчанию 127.0.0.1:8088)
 		Password string `yaml:"password"` // пароль входа
 		Login    string `yaml:"login"`    // логин входа (фиксированный, один; нужен браузерным менеджерам паролей)
-		// PublicURL — публичный адрес панели (https://IP/vps-xxxx/) для ссылок
-		// в разделе «Компоненты». Пусто — ссылка на себя не показывается.
-		PublicURL string `yaml:"public_url"`
-		TLS       struct {
+		TLS      struct {
 			Enabled  bool   `yaml:"enabled"`   // включить HTTPS
 			CertFile string `yaml:"cert_file"` // свой сертификат; пусто → самоподписанный
 			KeyFile  string `yaml:"key_file"`
