@@ -1010,18 +1010,21 @@ func TestComponentsAPI(t *testing.T) {
 	json.NewDecoder(r.Body).Decode(&resp)
 	r.Body.Close()
 	list := resp.Components
-	if len(list) != 6 {
-		t.Fatalf("компонентов = %d, want 6", len(list))
+	if len(list) != 5 {
+		t.Fatalf("компонентов = %d, want 5", len(list))
 	}
 	byName := map[string]bool{}
 	for _, c := range list {
 		byName[c.Name] = c.Updatable
 	}
-	if !byName["vps-admin"] || !byName["3x-ui"] || !byName["xray"] || !byName["telemt"] || !byName["nginx"] {
+	if !byName["vps-admin"] || !byName["3x-ui"] || !byName["xray"] || !byName["telemt"] {
 		t.Errorf("updatable = %v", byName)
 	}
 	if byName["amneziawg"] {
 		t.Error("amneziawg не должен быть updatable")
+	}
+	if _, ok := byName["nginx"]; ok {
+		t.Error("nginx не должен появляться в списке компонентов")
 	}
 
 	// неизвестный компонент → 400

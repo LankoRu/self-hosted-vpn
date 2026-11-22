@@ -255,7 +255,6 @@ func (r *Runner) collect(ctx context.Context) []Component {
 		r.xray(),
 		r.telemt(),
 		r.amneziawg(),
-		r.nginx(),
 	}
 	return out
 }
@@ -381,17 +380,6 @@ func (r *Runner) amneziawg() Component {
 	}
 	if v, err := r.runOut(context.Background(), "modinfo", "-F", "version", "amneziawg"); err == nil && v != "" {
 		c.Version += " / ядро: " + v
-	}
-	return c
-}
-
-func (r *Runner) nginx() Component {
-	c := Component{Name: "nginx", Title: "nginx (SNI-роутер)", Updatable: true, Note: "Обновление из apt-репозитория дистрибутива"}
-	c.Version = "—"
-	c2 := r.cmd(context.Background(), "nginx", "-v")
-	b, _ := c2.CombinedOutput() // nginx -v пишет в stderr
-	if i := strings.Index(string(b), "nginx/"); i >= 0 {
-		c.Version = strings.Fields(string(b)[i+6:])[0]
 	}
 	return c
 }
@@ -561,7 +549,6 @@ var updaters = map[string]updaterDef{
 	"3x-ui":     {true, update3xui},
 	"xray":      {true, updateXray},
 	"telemt":    {true, updateTelemt},
-	"nginx":     {true, updateNginx},
 }
 
 // streamCmd выполняет команду, стримя вывод в лог job (видно в окне прогресса).
@@ -798,18 +785,4 @@ func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
 		j.write("telemt: " + firstLine(v) + "\n")
 	}
 	return nil
-}
-
-// updateNginx — обновление пакета из apt + reload.
-func updateNginx(ctx context.Context, r *Runner, j *jobState) error {
-	if err := r.streamCmd(ctx, j, "apt-get", "update"); err != nil {
-		return err
-	}
-	if err := r.streamCmd(ctx, j, "apt-get", "install", "-y", "--only-upgrade", "nginx"); err != nil {
-		return err
-	}
-	if err := r.streamCmd(ctx, j, "nginx", "-t"); err != nil {
-		return err
-	}
-	return r.streamCmd(ctx, j, "systemctl", "reload", "nginx")
 }
