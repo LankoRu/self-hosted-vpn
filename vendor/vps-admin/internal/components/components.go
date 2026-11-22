@@ -27,6 +27,12 @@ import (
 // execCommand подменяется в тестах (сигнатура exec.CommandContext).
 var execCommand = exec.CommandContext
 
+// Базовые адреса GitHub (подменяются в тестах).
+var (
+	githubAPIBase = "https://api.github.com"
+	githubWebBase = "https://github.com"
+)
+
 const logCap = 8000 // хвост лога job, который видит UI
 
 // Component — компонент стека: версия, доступность обновления, состояние job.
@@ -406,17 +412,25 @@ func (r *Runner) githubLatestTag(repo string) (string, error) {
 // ОБНОВЛЕНИИ: кэш (10 мин) годится для отображения, но не для выбора версии —
 // иначе свежий релиз пропускался бы, а при отставшем кэше можно было бы
 // «обновиться» на старый тег (откат, случившийся на живом сервере).
+// Если GitHub API недоступен (403 — лимит 60/ч на IP), тег берётся из редиректа
+// releases/latest — это обычный html-запрос, не подпадающий под лимит API.
 func (r *Runner) githubLatestTagFresh(repo string) (string, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
+	req, _ := http.NewRequest("GET", githubAPIBase+"/repos/"+repo+"/releases/latest", nil)
 	if r.cfg.Update.GithubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+r.cfg.Update.GithubToken)
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
+		if tag, rerr := r.tagFromRedirect(repo); rerr == nil {
+			return tag, nil
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if tag, rerr := r.tagFromRedirect(repo); rerr == nil {
+			return tag, nil
+		}
 		return "", fmt.Errorf("github status %d", resp.StatusCode)
 	}
 	var d struct {
@@ -429,6 +443,40 @@ func (r *Runner) githubLatestTagFresh(repo string) (string, error) {
 	r.tagCache[repo] = tagEntry{tag: d.TagName, at: time.Now()}
 	r.tagMu.Unlock()
 	return d.TagName, nil
+}
+
+// tagFromRedirect — тег последнего релиза из редиректа
+// https://github.com/OWNER/REPO/releases/latest → /releases/tag/vX.Y.Z.
+// Нужен, когда GitHub API отвечает 403 (исчерпан лимит на IP).
+func (r *Runner) tagFromRedirect(repo string) (string, error) {
+	c := &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse // нужен сам Location, не страница
+		},
+	}
+	req, _ := http.NewRequest("GET", githubWebBase+"/"+repo+"/releases/latest", nil)
+	if r.cfg.Update.GithubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+r.cfg.Update.GithubToken)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if i < 0 {
+		return "", fmt.Errorf("не удалось определить тег: status %d, Location %q", resp.StatusCode, loc)
+	}
+	tag := strings.TrimSpace(loc[i+len("/tag/"):])
+	if tag == "" {
+		return "", fmt.Errorf("пустой тег в Location %q", loc)
+	}
+	r.tagMu.Lock()
+	r.tagCache[repo] = tagEntry{tag: tag, at: time.Now()}
+	r.tagMu.Unlock()
+	return tag, nil
 }
 
 func (r *Runner) githubDownload(url string, w io.Writer) error {
@@ -543,7 +591,7 @@ func updateVpsAdmin(ctx context.Context, r *Runner, j *jobState) error {
 	}
 	j.write("Последний релиз: " + tag + " (текущий: " + version.Version + ")\n")
 	asset := "vps-admin-linux-" + runtime.GOARCH
-	base := "https://github.com/" + r.cfg.Update.GithubRepo + "/releases/download/" + tag + "/"
+	base := githubWebBase + "/" + r.cfg.Update.GithubRepo + "/releases/download/" + tag + "/"
 	tmp, err := os.MkdirTemp("", "vps-admin-update-")
 	if err != nil {
 		return err
@@ -684,7 +732,7 @@ func updateTelemt(ctx context.Context, r *Runner, j *jobState) error {
 		arch = "aarch64"
 	}
 	asset := "telemt-" + arch + "-linux-gnu.tar.gz"
-	base := "https://github.com/telemt/telemt/releases/download/" + tag + "/"
+	base := githubWebBase + "/telemt/telemt/releases/download/" + tag + "/"
 	tmp, err := os.MkdirTemp("", "telemt-update-")
 	if err != nil {
 		return err
