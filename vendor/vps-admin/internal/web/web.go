@@ -446,13 +446,18 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Прямой заход на эндпоинт входа (закладка, перезагрузка страницы ошибки) —
+		// отдаём форму, а не 401-JSON: иначе страница выглядит сломанной.
+		if r.Method == http.MethodGet && r.URL.Path == "/api/login" {
+			s.writeLoginPage(w, "", "")
+			return
+		}
 		// Не авторизован: API → 401, страницы → форма входа.
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			writeErr(w, http.StatusUnauthorized, "требуется вход")
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(s.loginPageHTML("")))
+		s.writeLoginPage(w, "", "")
 	})
 }
 
@@ -482,25 +487,29 @@ func (s *Server) authed(r *http.Request) bool {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	form := strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded")
-	if d := s.limiter.blockedFor(ip); d > 0 {
-		mins := int(d.Minutes()) + 1
-		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds())+1))
-		msg := fmt.Sprintf("слишком много попыток входа — подождите %d мин", mins)
-		if form {
-			s.writeLoginPage(w, msg)
-			return
-		}
-		writeErr(w, http.StatusTooManyRequests, msg)
-		return
-	}
-	var username, password string
+	// Поля формы разбираем сразу: `next` (куда вернуть после входа) нужен даже в
+	// ветке блокировки по лимиту попыток.
+	var username, password, next string
 	if form {
 		if err := r.ParseForm(); err != nil {
 			writeErr(w, http.StatusBadRequest, "неверный запрос")
 			return
 		}
 		username, password = r.PostFormValue("username"), r.PostFormValue("password")
-	} else {
+		next = r.PostFormValue("next")
+	}
+	if d := s.limiter.blockedFor(ip); d > 0 {
+		mins := int(d.Minutes()) + 1
+		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds())+1))
+		msg := fmt.Sprintf("слишком много попыток входа — подождите %d мин", mins)
+		if form {
+			s.writeLoginPage(w, next, msg)
+			return
+		}
+		writeErr(w, http.StatusTooManyRequests, msg)
+		return
+	}
+	if !form {
 		var req struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -518,7 +527,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.limiter.fail(ip)
 		log.Printf("[web] неудачный вход (логин) с %s", ip)
 		if form {
-			s.writeLoginPage(w, "Неверный логин")
+			s.writeLoginPage(w, next, "Неверный логин")
 			return
 		}
 		writeErr(w, http.StatusUnauthorized, "неверный логин")
@@ -528,7 +537,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.limiter.fail(ip)
 		log.Printf("[web] неудачный вход с %s", ip)
 		if form {
-			s.writeLoginPage(w, "Неверный пароль")
+			s.writeLoginPage(w, next, "Неверный пароль")
 			return
 		}
 		writeErr(w, http.StatusUnauthorized, "неверный пароль")
@@ -547,15 +556,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if form {
 		// Нативная отправка формы: редирект обратно, откуда пришли (менеджеры
 		// паролей, в т.ч. Safari, сохраняют пароль именно на реальной отправке
-		// формы). Из Referer берём только путь — редирект остаётся на этом же хосте.
-		dest := "/"
-		if ref, err := url.Parse(r.Referer()); err == nil && ref.Path != "" {
-			dest = ref.Path
-			if ref.RawQuery != "" {
-				dest += "?" + ref.RawQuery
-			}
-		}
-		http.Redirect(w, r, dest, http.StatusSeeOther)
+		// формы).
+		http.Redirect(w, r, loginRedirectTarget(r, next), http.StatusSeeOther)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -571,9 +573,49 @@ func isHTTPS(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
-func (s *Server) writeLoginPage(w http.ResponseWriter, errMsg string) {
+func (s *Server) writeLoginPage(w http.ResponseWriter, next, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(s.loginPageHTML(errMsg)))
+	_, _ = w.Write([]byte(s.loginPageHTML(next, errMsg)))
+}
+
+// loginRedirectTarget — куда вернуться после входа: явный next из формы, иначе
+// путь из Referer, иначе "/".
+//
+// next обязателен: после неудачной попытки форма отдаётся по адресу
+// /api/login, и Referer на повторе указывает ровно на /api/login — редирект
+// туда же приводил в тупик (GET /api/login → 404). Поэтому форма запоминает
+// реальный путь панели (его знает только браузер: nginx срезает секретный
+// префикс) и возвращает его в следующий POST.
+func loginRedirectTarget(r *http.Request, next string) string {
+	if p, ok := safeLocalPath(next); ok {
+		return p
+	}
+	if ref, err := url.Parse(r.Referer()); err == nil {
+		if p, ok := safeLocalPath(ref.RequestURI()); ok {
+			return p
+		}
+	}
+	return "/"
+}
+
+// safeLocalPath — только локальный путь на этом же хосте: ровно один ведущий
+// "/", без "//" (протокол-относительный URL увёл бы на чужой хост), без
+// управляющих символов и бэкслешей, и не сам эндпоинт входа (иначе цикл).
+func safeLocalPath(raw string) (string, bool) {
+	if raw == "" || raw[0] != '/' || strings.HasPrefix(raw, "//") {
+		return "", false
+	}
+	if strings.ContainsAny(raw, "\\\r\n\t") {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Opaque != "" {
+		return "", false
+	}
+	if u.Path == "/api/login" || strings.HasPrefix(u.Path, "/api/") {
+		return "", false
+	}
+	return u.RequestURI(), true
 }
 
 // handleLogout сбрасывает session-cookie — пользователь снова увидит форму входа.
@@ -599,7 +641,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // сохранить пароль только на реальной отправке формы; autocomplete-атрибуты
 // подсказывают им поля. Логин подставляется из конфига (web.login) и readonly —
 // он единственный.
-func (s *Server) loginPageHTML(errMsg string) string {
+func (s *Server) loginPageHTML(next, errMsg string) string {
 	errHTML := ""
 	if errMsg != "" {
 		errHTML = `<div class="err">` + html.EscapeString(errMsg) + `</div>`
@@ -622,11 +664,23 @@ button:hover{background:#4f9cff}
 </style></head><body>
 <div class="box"><h1>🛡️ vps-admin</h1>
 <form method="post" action="/api/login">
+<input type="hidden" name="next" id="next" value="` + html.EscapeString(next) + `">
 <input id="u" name="username" type="text" value="` + html.EscapeString(s.cfg.Web.Login) + `" autocomplete="username" readonly>
 <input id="p" name="password" type="password" placeholder="Пароль" autocomplete="current-password" autofocus>
 <button type="submit">Войти</button>
 </form>
-` + errHTML + `</div></body></html>`
+` + errHTML + `</div>
+<script>
+// Путь возврата после входа: nginx срезает секретный префикс, поэтому бэкенд
+// его не знает — подставляем адрес из браузера. На странице ошибки адрес уже
+// /api/login, там берём значение, присланное сервером.
+(function(){
+  var n = document.getElementById("next");
+  if (n && location.pathname !== "/api/login") {
+    n.value = location.pathname + location.search;
+  }
+})();
+</script></body></html>`
 }
 
 // handleQR отдаёт PNG QR-кода для ?text=... (генерируется на сервере, без CDN).
