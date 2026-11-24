@@ -51,6 +51,16 @@ mask_relay_idle_timeout_ms = 30000
 tls_emulation = true
 tls_front_dir = "tlsfront"
 
+# Файловый лог с ротацией. INFO пишется на каждое соединение: на эталоне это
+# дало 457 МБ syslog и 756 МБ journald за сутки. 50 МБ × 3 файла — с запасом.
+[logging]
+destination = "file"
+path = "/var/log/telemt/telemt.log"
+rotation = "daily"
+max_size_bytes = 52428800
+max_files = 3
+max_age_secs = 604800
+
 [access.users]
 # формат: "имя" = "32 hex-символа секрета"
 hello = "__TG_SECRET__"
