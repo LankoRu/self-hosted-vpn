@@ -27,9 +27,14 @@ export SERVER_IP VPSADMIN_PORT VPSADMIN_PATH
 
 [ "$(id -u)" = 0 ] || die "нужен root"
 [ -d "$ROOT/vendor/vps-admin" ] || die "vendor/vps-admin не найден (нужен systemd unit)"
-if [ -z "$BOT_TOKEN" ] || [ -z "$BOT_CHAT" ]; then
-    die "нужны BOT_TOKEN и BOT_CHAT (задайте env или ответьте на вопросы install.sh)"
+# --no-bot: панель без Telegram (панель и сбор статистики работают).
+NO_BOT="${NO_BOT:-0}"
+if [ "$NO_BOT" != "1" ] && { [ -z "$BOT_TOKEN" ] || [ -z "$BOT_CHAT" ]; }; then
+    die "нужны BOT_TOKEN и BOT_CHAT (или --no-bot для панели без Telegram)"
 fi
+# kernel-режим AWG нужен vps-admin только для проверки здоровья (модуль загружен?)
+AWG_KERNEL="${AWG_KERNEL:-1}"
+[ "$AWG_KERNEL" = "1" ] && AWG_KERNEL_YAML=true || AWG_KERNEL_YAML=false
 
 # ----------------------------------------------------------------------------
 step "1/5 Бинарь vps-admin из GitHub Releases ($SHVPN_REPO, $VPSADMIN_VERSION)"
@@ -76,7 +81,7 @@ if [ -f /etc/vps-admin/config.yaml ]; then
     WEBPASS=$(grep -oP 'password:\s*"\K[^"]+' /etc/vps-admin/config.yaml 2>/dev/null || echo "$WEBPASS")
 else
     if [ "$AWG_ID" != "0" ]; then AWG_ENABLED=true; else AWG_ENABLED=false; fi
-    export BOT_TOKEN BOT_CHAT WEBPASS AWG_ENABLED AWG_ID
+    export BOT_TOKEN BOT_CHAT WEBPASS AWG_ENABLED AWG_ID AWG_KERNEL_YAML
     render_tpl "$ROOT/config/vps-admin.config.yaml.tpl" /etc/vps-admin/config.yaml
     chmod 600 /etc/vps-admin/config.yaml
 fi

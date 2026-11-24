@@ -35,6 +35,7 @@ amneziawg_3xui:
   api_token: "__XUI_TOKEN__"
   inbound_id: __AWG_ID__
   public_host: "__SERVER_IP__"
+  kernel: __AWG_KERNEL_YAML__   # kernel mode: проверка, что модуль amneziawg загружен
 
 telemt:
   base_url: "http://127.0.0.1:9091"
