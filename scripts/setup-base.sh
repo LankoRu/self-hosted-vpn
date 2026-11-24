@@ -197,6 +197,13 @@ PYEOF
     ok "сохранены существующие пользователи telemt"
 fi
 # владелец telemt + group-write: API-провижининг атомарно перезаписывает конфиг
+# Логи telemt — в файл (см. [logging] в шаблоне); каталог принадлежит telemt.
+install -d -o telemt -g telemt -m 750 /var/log/telemt
+# Журнал systemd ограничиваем: без лимита он растёт до 10% диска (на 10-ГБ VPS
+# это ~1 ГБ, а при болтливом сервисе — забивает диск).
+install -d -m 755 /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=200M\n' > /etc/systemd/journald.conf.d/90-size.conf
+systemctl restart systemd-journald 2>/dev/null || true
 chown telemt:telemt /etc/telemt /etc/telemt/telemt.toml
 chmod 770 /etc/telemt && chmod 660 /etc/telemt/telemt.toml
 systemctl start telemt
