@@ -48,6 +48,9 @@ func Start(cfg *config.Config, st *store.Store, reg *registry.Registry, mgr *man
 	c.AddFunc("*/5 * * * *", func() { Collect(cfg, st, reg, al) })
 
 	// Проверки здоровья сервера — раз в час.
+	// Сразу при старте: после ребута/обновления ядра проблемы (модуль AWG,
+	// сертификат, диск) должны всплыть в Telegram, а не через час.
+	go CheckHealth(cfg, al)
 	c.AddFunc("7 * * * *", func() { CheckHealth(cfg, al) })
 
 	// Ссылки подключения — раз в час: хосты/порты в 3x-ui могли поменяться.
