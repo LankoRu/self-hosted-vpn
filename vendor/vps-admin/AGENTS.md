@@ -306,8 +306,14 @@ REPLACE по той же строке identities). Порядок строго D
   входа — нативный `<form method=post action=/api/login>` с полями
   `autocomplete="username"` (readonly, подставляется из конфига) и
   `autocomplete="current-password"`: менеджеры паролей (Safari) сохраняют пароль
-  только на реальной отправке формы. Успех → session-cookie + 303 на путь из
-  Referer; ошибка → страница с текстом. JSON-вход (`{username?,password}`)
+  только на реальной отправке формы. Успех → session-cookie + 303 на путь
+  возврата: скрытое поле `next` (браузер подставляет `location.pathname`, т.к.
+  nginx срезает секретный префикс и бэкенд его не знает) → иначе путь из
+  Referer → иначе `/`. Только локальные пути и не `/api/*` (иначе открытый
+  редирект / цикл). Ошибка/лимит → та же форма с текстом и сохранённым `next`;
+  именно из-за потери `next` вход после неудачной попытки приводил на
+  `/api/login` → 404. `GET /api/login` без cookie отдаёт форму, не 401-JSON.
+  JSON-вход (`{username?,password}`)
   сохранён для API/тестов (username опционален, но если прислан — проверяется).
   Session token derived from the password via sha256, so it survives restarts/deploys. On a
   non-loopback `listen`, an empty password disables the panel.

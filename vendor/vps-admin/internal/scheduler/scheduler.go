@@ -134,6 +134,19 @@ func CheckHealth(cfg *config.Config, al *alerts.Alerter) {
 		}
 	}
 
+	// AmneziaWG kernel mode: модуль должен быть загружен. После обновления ядра
+	// или ребута DKMS может поставить .ko, но не обновить modules.dep — modprobe
+	// молча падает, x-ui пишет WARNING, а UDP-443 не работает (клиенты «не
+	// подключаются», и без этой проверки никто не узнает).
+	if cfg.Services.AmneziaWG.Enabled && cfg.AmneziaWG3xUI.Kernel {
+		if err := checkKernelModule("amneziawg"); err != nil {
+			al.Problem("amneziawg", "AmneziaWG (UDP 443) не работает: "+err.Error()+". "+
+				"Проверьте: modprobe amneziawg; если 'Module not found' — depmod -a и повторите", 1)
+		} else {
+			al.OK("amneziawg", "AmneziaWG: модуль ядра загружен")
+		}
+	}
+
 	// TLS: у Let's Encrypt на IP профиль shortlived — всего ~6 дней. Если cron
 	// acme.sh сломается, панель молча станет недоступной в браузерах.
 	certFile := cfg.Web.TLS.CertFile
@@ -152,6 +165,17 @@ func CheckHealth(cfg *config.Config, al *alerts.Alerter) {
 		return
 	}
 	al.OK("cert", "TLS-сертификат продлён, действует до "+notAfter.Format("02.01 15:04"))
+}
+
+// modulePath — путь к каталогу загруженного модуля (подменяется в тестах).
+var modulePath = func(name string) string { return "/sys/module/" + name }
+
+// checkKernelModule проверяет, что модуль ядра загружен.
+func checkKernelModule(name string) error {
+	if _, err := os.Stat(modulePath(name)); err != nil {
+		return fmt.Errorf("модуль %s не загружен", name)
+	}
+	return nil
 }
 
 // certNotAfter возвращает дату окончания первого сертификата в PEM-файле.

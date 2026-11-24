@@ -826,6 +826,91 @@ func TestLoginFormNativeWithUsername(t *testing.T) {
 	}
 }
 
+// TestLoginRedirectNotBackToLoginAPI — после неудачной попытки форма отдаётся по
+// адресу /api/login, и Referer на повторе указывает туда же. Редирект на
+// /api/login приводил в тупик (404). Возврат должен идти на путь, запомненный
+// формой (`next`), а без него — на "/".
+func TestLoginRedirectNotBackToLoginAPI(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SetDefaults()
+	cfg.Web.Password = "secret"
+	st, err := store.New(filepath.Join(t.TempDir(), "test.db"), cfg)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ts := httptest.NewServer(New(cfg, st, manager.New(st, registry.New(cfg, st))).Handler())
+	t.Cleanup(ts.Close)
+
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	post := func(body string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("POST", ts.URL+"/api/login", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatalf("form POST: %v", err)
+		}
+		return r
+	}
+
+	// 1. неверный пароль: на странице ошибки должен сохраниться next
+	r := post("username=admi&password=nope&next=%2Fvps-abc123%2Fusers")
+	page, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("ошибка входа: status = %d, want 200", r.StatusCode)
+	}
+	if !strings.Contains(string(page), `name="next"`) ||
+		!strings.Contains(string(page), `value="/vps-abc123/users"`) {
+		t.Errorf("страница ошибки не сохранила next: %s", page)
+	}
+
+	// 2. повтор с Referer=/api/login, но с next → возврат на путь панели
+	req, _ := http.NewRequest("POST", ts.URL+"/api/login", strings.NewReader("username=admi&password=secret&next=%2Fvps-abc123%2Fusers"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", ts.URL+"/api/login")
+	r2, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("retry POST: %v", err)
+	}
+	r2.Body.Close()
+	if loc := r2.Header.Get("Location"); loc != "/vps-abc123/users" {
+		t.Errorf("Location = %q, want /vps-abc123/users", loc)
+	}
+
+	// 3. без next и с Referer=/api/login → "/" (а не цикл на /api/login)
+	r3 := post("username=admi&password=secret")
+	r3.Body.Close()
+	r3.Body.Close()
+	if loc := r3.Header.Get("Location"); loc != "/" {
+		t.Errorf("Location = %q, want /", loc)
+	}
+
+	// 4. GET /api/login без cookie → форма, а не 401-JSON
+	resp, err := http.Get(ts.URL + "/api/login")
+	if err != nil {
+		t.Fatalf("GET /api/login: %v", err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `action="/api/login"`) {
+		t.Errorf("GET /api/login: status=%d, want форма входа", resp.StatusCode)
+	}
+
+	// 5. открытый редирект невозможен: только локальные пути
+	for _, bad := range []string{"//evil.example/x", "https://evil.example/x", "/api/users", "/api/login", "/\\evil", "/x\r\nSet-Cookie: a=b"} {
+		if p, ok := safeLocalPath(bad); ok {
+			t.Errorf("safeLocalPath(%q) = %q, want отказ", bad, p)
+		}
+	}
+	for _, good := range []string{"/", "/vps-abc123/", "/p/tok?x=1"} {
+		if _, ok := safeLocalPath(good); !ok {
+			t.Errorf("safeLocalPath(%q) отклонён", good)
+		}
+	}
+}
+
 // fakeDeviceProv — провижинер с поддержкой устройств для теста device-API.
 type fakeDeviceProv struct{ deleted []string }
 

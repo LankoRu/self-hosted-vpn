@@ -130,6 +130,10 @@ type AWG3xUIConfig struct {
 	// подставляет хост из Host-заголовка запроса; т.к. API дёргается по localhost,
 	// без этого в Endpoint окажется localhost. Порт всегда из самого инбаунда.
 	PublicHost string `yaml:"public_host"`
+	// Kernel — AWG работает через модуль ядра (kernel mode). Нужен только для
+	// проверки здоровья: если модуль не загружен, UDP-443 молча не работает
+	// (типично после обновления ядра/ребута, когда DKMS не обновил modules.dep).
+	Kernel bool `yaml:"kernel"`
 }
 
 // TeleMTConfig — MTProto-прокси telemt: сбор статистики и провижининг.

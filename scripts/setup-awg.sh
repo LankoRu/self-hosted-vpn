@@ -17,6 +17,40 @@ export SERVER_IP XUI_DB
 [ "$(id -u)" = 0 ] || die "нужен root"
 
 # ----------------------------------------------------------------------------
+# install_awg_autoload — модуль должен подниматься сам после ребута и после
+# обновления ядра: modules-load.d + хук DKMS-постобработки + oneshot на загрузку
+# (последний пересобирает depmod, если модуль всё же не нашёлся).
+install_awg_autoload() {
+    echo amneziawg > /etc/modules-load.d/amneziawg.conf
+    cat > /etc/kernel/postinst.d/zz-amneziawg-depmod <<'EOF'
+#!/bin/sh
+# После установки ядра обновить modules.dep, чтобы modprobe видел модуль DKMS.
+set -e
+[ -d "/lib/modules/$1/updates/dkms" ] || exit 0
+depmod -a "$1" || true
+EOF
+    chmod 755 /etc/kernel/postinst.d/zz-amneziawg-depmod
+    cat > /etc/systemd/system/amneziawg-load.service <<'EOF'
+[Unit]
+Description=Загрузка модуля ядра amneziawg (AmneziaWG, UDP-443)
+After=local-fs.target systemd-modules-load.service
+Before=x-ui.service
+ConditionPathExists=/etc/modules-load.d/amneziawg.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Если модуль не находится (modules.dep устарел) — пересобираем индексы и пробуем снова.
+ExecStart=/bin/sh -c 'modprobe amneziawg || (depmod -a && modprobe amneziawg)'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable amneziawg-load.service >/dev/null 2>&1 || true
+    systemctl restart amneziawg-load.service 2>/dev/null || true
+}
+
 if [ "$AWG_KERNEL" = "1" ]; then
     step "AmneziaWG: kernel module + tools"
     if lsmod | grep -q '^amneziawg' && command -v awg >/dev/null 2>&1; then
@@ -54,7 +88,12 @@ if [ "$AWG_KERNEL" = "1" ]; then
                     || die "сборка amneziawg-tools не удалась"
             fi
         fi
+        # modules.dep: DKMS ставит .ko в /lib/modules/<ver>/updates/dkms/, но
+        # modprobe его не видит, пока не выполнен depmod. На эталоне это дало
+        # «Module amneziawg not found» после ребута — AWG (UDP-443) пролежал сутки.
+        depmod -a "$(uname -r)" 2>/dev/null || true
         lsmod | grep -q '^amneziawg' || modprobe amneziawg
+        install_awg_autoload
         ok "модуль: $(cat /sys/module/amneziawg/version 2>/dev/null), tools: $(awg --version 2>/dev/null)"
     fi
 else
