@@ -341,10 +341,11 @@ func setupTelemtWeb(ctx context.Context, r *Runner, j *jobState, domain, ip, tel
 	tmp.Close()
 
 	// Валидация ДО остановки: healthcheck грузит конфиг (parse_source); этап
-	// «config load failed» = невалиден. API-проба может не пройти — не ошибка.
-	out, _ := r.runOut(ctx, "telemt", "healthcheck", tmp.Name())
-	if strings.Contains(out, "config load failed") {
-		return fmt.Errorf("новый telemt.toml не прошёл валидацию (старый telemt не остановлен): %s", out)
+	// «config load failed» = невалиден. Сообщение идёт в STDERR — ловим оба потока.
+	// API-проба может не пройти — это не ошибка конфига.
+	hcOut, _ := r.cmd(ctx, "telemt", "healthcheck", tmp.Name()).CombinedOutput()
+	if strings.Contains(string(hcOut), "config load failed") {
+		return fmt.Errorf("новый telemt.toml не прошёл валидацию (старый telemt не остановлен): %s", strings.TrimSpace(string(hcOut)))
 	}
 	j.write("Конфиг валиден, применяю\n")
 	if err := r.streamCmd(ctx, j, "systemctl", "stop", "telemt"); err != nil {
