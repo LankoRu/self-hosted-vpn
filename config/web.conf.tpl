@@ -12,7 +12,10 @@ map $http_upgrade $shvpn_connection_upgrade {
 limit_req_zone $binary_remote_addr zone=vpsadmin_login:10m rate=5r/m;
 
 server {
-    listen 127.0.0.1:__WEB_PORT__ ssl proxy_protocol;
+    # default_server ОБЯЗАТЕЛЕН: WEB-vhost (shvpn-telemt-web) слушает тот же порт
+    # и грузится раньше по алфавиту — без этого он стал бы default и отдавал бы
+    # свой доменный серт на запросы по IP/без SNI (сайт/панель/подписки сломаются).
+    listen 127.0.0.1:__WEB_PORT__ ssl proxy_protocol default_server;
     server_name _;
 
     set_real_ip_from 127.0.0.1;

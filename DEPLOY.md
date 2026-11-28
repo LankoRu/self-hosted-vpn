@@ -267,6 +267,50 @@ alice = "<новые 32 hex>"   # openssl rand -hex 16
 `systemctl restart telemt && systemctl reload nginx`.
 **Все ранее выданные tg-ссылки станут невалидными** (домен зашит в секрет).
 
+### WEB-прокси Telegram (HTTPS, Desktop 7.1+)
+
+Новый тип прокси Telegram **WEB**: MTProto идёт внутри обычных HTTPS/WebSocket-
+запросов к **вашему** домену, снаружи неотличимо от посещения сайта (в отличие от
+FakeTLS, который DPI уже фингерпринтит). Реализован в telemt ≥ 3.5.1.
+
+**Включение** — флаг установщика `--tg-web-domain <ваш-домен>`:
+```bash
+bash install.sh --tg-web-domain tg.example.duckdns.org   # + остальные флаги
+```
+Требования к домену:
+- **Настоящий FQDN, не IP** — telemt WEB отклоняет IP-литералы. Подходит и
+  бесплатный поддомен DuckDNS/No-IP, и дешёвый домен (.xyz/.top/.ru).
+- **A-запись на IP сервера** (установщик проверяет DNS перед выпуском серта).
+- Домен **не должен совпадать** с доменом-маской FakeTLS (`TG_DOMAIN`) или IP.
+
+Что делает установщик:
+1. Выпускает LE-серт на домен (HTTP-01, обычный профиль; :80 открывается на секунды).
+2. Дописывает к `/etc/telemt/telemt.toml` WEB-листенер `127.0.0.1:18080`
+   (`transport="web"`, без PROXY-протокола), `[web]` и vhost с dd-профилем на
+   каждого пользователя `[access.users]`. Сайт-прикрытие — снимок `/var/www/shvpn`.
+3. Поднимает nginx-vhost `shvpn-telemt-web` (SNI/Host = домен → терминирует TLS →
+   plain HTTP в telemt). SNI домена в stream-карте попадает в `default web`,
+   поэтому **SNI-карту менять не нужно**.
+
+Конфиг валидируется (`telemt healthcheck`) **до** остановки telemt — невалидный
+конфиг не роняет работающий прокси.
+
+**Ссылки пользователей**: `tg://webproxy?server=<домен>&secret=dd<32hex>`. Их
+выдаёт vps-admin (панель/бот, пункт «WEB (HTTPS, Desktop 7.1+)») — он сам создаёт
+WEB-профиль при провижининге и убирает перед удалением пользователя. WEB не
+поддерживает `ee`-секреты, используется `dd` с тем же секретом, что и MTProto.
+
+**Проверка**:
+```bash
+curl -sI https://<домен>/                 # сайт-прикрытие (decoy), валидный серт
+telemt healthcheck /etc/telemt/telemt.toml # конфиг валиден
+```
+Затем подключить WEB-ссылку в Telegram Desktop 7.1+ (Settings → Advanced →
+Connection Type → WEB proxy).
+
+**Выключение**: перезапустить установщик без `--tg-web-domain` (или с пустым) —
+WEB-блок и nginx-vhost убираются, MTProto/FakeTLS остаётся.
+
 ### Логи
 
 ```bash

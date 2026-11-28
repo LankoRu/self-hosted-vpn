@@ -7,6 +7,7 @@ package telemt
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -100,5 +101,13 @@ func (s *Service) RefreshItems(username string) ([]service.Item, error) {
 			secret = string(m[1])
 		}
 	}
-	return buildItems(secret, links), nil
+	items := buildItems(secret, links)
+	// WEB-прокси (best-effort): заодно создаём профиль существующему юзеру,
+	// если WEB включили после его создания (backfill).
+	if host, werr := s.ensureWebProfile(username); werr != nil {
+		log.Printf("[telemt] WEB-профиль для %s не создан: %v", username, werr)
+	} else if host != "" && secret != "" {
+		items = append(items, webItem(host, secret))
+	}
+	return items, nil
 }
