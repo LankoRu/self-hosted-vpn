@@ -1299,6 +1299,7 @@ async function loadComponents(){
         title="Открыть в новой вкладке">${esc(l.label)} ↗</a>`).join("")
     : `<span class="muted" style="font-size:12px">Ссылки на страницы появятся после заполнения public_url / sub_url в конфиге</span>`;
   $("#components").innerHTML = list.map(c=>{
+    if(c.setup==="web") return renderWebProxyRow(c);
     const job = c.job;
     const running = job && job.state==="running";
     // Стрелка «→ latest» и кнопка — только когда есть разница версий;
@@ -1322,6 +1323,41 @@ async function loadComponents(){
   if(!anyRunning && compPoll){ clearInterval(compPoll); compPoll = null; }
 }
 
+// renderWebProxyRow — строка WEB-прокси: не версия-обновление, а донастройка
+// (серт + telemt + nginx) для своего домена. Кнопка «Обновить» бинаря этого не
+// делает, поэтому отдельное действие с вводом домена и окном прогресса.
+function renderWebProxyRow(c){
+  const job=c.job, running=job&&job.state==="running";
+  const state = job&&job.state==="error" ? ' <span style="color:var(--red)">ошибка</span>'
+    : (job&&job.state==="done" ? ' <span style="color:var(--green)">готово</span>' : "");
+  const configured = !!c.web_domain;
+  const status = configured
+    ? `<span class="muted mono">${esc(c.web_domain)}</span> <span style="color:var(--green)">✓ настроен</span>`
+    : `<span class="muted">не настроен</span>`;
+  let action;
+  if(running){
+    action = `<button class="ghost" onclick="openCompLog('web-proxy')">Прогресс…</button>`;
+  } else if(configured){
+    action = `<span class="muted" style="font-size:11px">смена домена — install.sh</span>`;
+  } else {
+    action = `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="webDomainInput" type="text" placeholder="tg.example.duckdns.org"
+        style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--code-bg);color:var(--fg);font-size:12px;min-width:180px">
+      <button class="ghost warnbtn" onclick="setupWebProxy()">Настроить</button></span>`;
+  }
+  return `<div class="row"><span><b>${esc(c.title)}</b>${state}<br>${status}
+    <br><span class="muted" style="font-size:11px">${esc(c.note||"")}</span></span><span>${action}</span></div>`;
+}
+async function setupWebProxy(){
+  const inp=document.getElementById("webDomainInput");
+  const domain=(inp?inp.value:"").trim().toLowerCase();
+  if(!domain){ toast("Введите домен, например tg.example.duckdns.org"); return; }
+  if(!confirm("Настроить WEB-прокси для «"+domain+"»?\n\nДомен должен иметь A-запись на IP этого сервера.\nБудет выпущен сертификат, настроены telemt и nginx. Откроется окно прогресса.")) return;
+  try { await api("POST","/api/web-proxy/setup",{domain}); }
+  catch(e){ toast(e.message); return; }
+  openCompLog("web-proxy");
+}
+
 let compWatch = null; // {name, timer, startVersion}
 async function updateComponent(name){
   if(!confirm("Обновить «"+name+"» до последней версии?\n\nОткроется окно прогресса. Сервис может кратковременно прерваться.")) return;
@@ -1334,7 +1370,7 @@ function openCompLog(name){
   compWatch = {name, startVersion:null, timer:null};
   $("#compModal").innerHTML = `
     <div class="row" style="border:none;padding-top:0">
-      <h3 style="margin:0">Обновление: ${esc(name)}</h3>
+      <h3 style="margin:0">${name==="web-proxy"?"Донастройка WEB-прокси":"Обновление: "+esc(name)}</h3>
       <button class="close" onclick="closeCompLog()">×</button></div>
     <div id="compState" class="muted" style="margin:6px 0">запуск…</div>
     <pre id="compLog" style="max-height:50vh;overflow:auto;background:var(--code-bg);color:var(--code-fg);padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>`;
@@ -1363,15 +1399,28 @@ async function pollCompLog(){
     if(c.job.state==="error"){ st.innerHTML = '<span style="color:var(--red)">Ошибка — подробности в логе</span>'; stopCompWatch(); loadComponents(); return; }
     st.innerHTML = '<span style="color:var(--green)">Готово</span>' +
       (c.version!==compWatch.startVersion ? ` · ${esc(compWatch.startVersion)} → ${esc(c.version)}` : "");
-    stopCompWatch(); loadComponents(); return;
+    const selfDone = compWatch.name==="vps-admin";
+    stopCompWatch();
+    if(selfDone){ reloadAfterUpdate(4000); } else { loadComponents(); }
+    return;
   }
   // job исчез (self-restart vps-admin сбросил состояние) — судим по версии.
   if(c.version !== compWatch.startVersion){
     st.innerHTML = '<span style="color:var(--green)">Обновлено до '+esc(c.version)+'</span>';
     log.textContent += "\n>>> Сервис перезапущен, новая версия: "+c.version;
-    stopCompWatch(); loadComponents(); return;
+    const selfGone = compWatch.name==="vps-admin";
+    stopCompWatch();
+    if(selfGone){ reloadAfterUpdate(1500); } else { loadComponents(); }
+    return;
   }
   st.textContent = "ожидание…";
+}
+// reloadAfterUpdate — после self-update vps-admin бинарь (и frontend) новый, но в
+// памяти браузера старый JS. Авто-перезагрузка подхватывает новый интерфейс без
+// ручной перезагрузки. Задержка — чтобы рестарт сервиса успел завершиться.
+function reloadAfterUpdate(ms){
+  const st=$("#compState"); if(st) st.innerHTML += " · перезагрузка страницы…";
+  setTimeout(()=>location.reload(), ms);
 }
 function stopCompWatch(){ if(compWatch && compWatch.timer) clearInterval(compWatch.timer); }
 function closeCompLog(){ stopCompWatch(); compWatch=null; $("#compOverlay").classList.remove("show"); loadComponents().catch(()=>{}); }

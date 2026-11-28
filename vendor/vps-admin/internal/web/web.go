@@ -402,6 +402,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/components", s.handleComponents)
 	mux.HandleFunc("POST /api/components/refresh", s.handleComponentsRefresh)
 	mux.HandleFunc("POST /api/components/{name}/update", s.handleComponentUpdate)
+	mux.HandleFunc("POST /api/web-proxy/setup", s.handleWebProxySetup)
 	mux.HandleFunc("POST /api/connections/reality", s.handleConnectionsReality)
 	mux.HandleFunc("POST /api/connections/telemt", s.handleConnectionsTelemt)
 	mux.HandleFunc("POST /api/connections/backup", s.handleConnectionsBackup)

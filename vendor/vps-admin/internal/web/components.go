@@ -6,6 +6,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -69,4 +70,21 @@ func (s *Server) handleComponentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"started": true, "name": name})
+}
+
+// handleWebProxySetup — донастройка WEB-прокси (серт + telemt + nginx) для домена.
+// Async-job "web-proxy"; UI показывает прогресс через GET /api/components.
+func (s *Server) handleWebProxySetup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "неверный запрос")
+		return
+	}
+	if err := s.comp.StartWebSetup(req.Domain); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"started": true, "name": "web-proxy"})
 }

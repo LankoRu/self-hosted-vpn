@@ -42,6 +42,10 @@ type Component struct {
 	Updatable       bool   `json:"updatable"`
 	Note            string `json:"note,omitempty"`
 	Job             *Job   `json:"job,omitempty"`
+	// Setup помечает строку-действие (не версия-обновление): "web" — донастройка
+	// WEB-прокси (кнопка с вводом домена вместо «Обновить»).
+	Setup     string `json:"setup,omitempty"`
+	WebDomain string `json:"web_domain,omitempty"`
 }
 
 // Job — состояние обновления (лог виден в окне прогресса).
@@ -262,6 +266,7 @@ func (r *Runner) collect(ctx context.Context) []Component {
 		r.panel3xui(),
 		r.xray(),
 		r.telemt(),
+		r.webProxy(),
 		r.amneziawg(),
 	}
 	return out
