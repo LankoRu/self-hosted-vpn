@@ -40,6 +40,7 @@ while [ $# -gt 0 ]; do
         --server-ip) need_val "$@"; SERVER_IP="$2"; shift 2 ;;
         --tg-domain) need_val "$@"; TG_DOMAIN="$2"; shift 2 ;;
         --tg-secret) need_val "$@"; TG_SECRET="$2"; shift 2 ;;
+        --tg-web-domain) need_val "$@"; TG_WEB_DOMAIN="$2"; shift 2 ;;
         --bot-token) need_val "$@"; BOT_TOKEN="$2"; NO_BOT=0; shift 2 ;;
         --bot-chat) need_val "$@"; BOT_CHAT="$2"; NO_BOT=0; shift 2 ;;
         --no-bot) NO_BOT=1; shift ;;
@@ -65,6 +66,8 @@ shvpn installer — VPN-схема «наружу только 443» (3x-ui + te
   --server-ip IP                публичный IP (дефолт: определяется автоматически)
   --tg-domain DOMAIN            домен-маска Telegram FakeTLS (дефолт: petrovich.ru)
   --tg-secret SECRET            секрет MTProto (дефолт: генерируется)
+  --tg-web-domain DOMAIN        свой домен для Telegram WEB-прокси (HTTPS, Desktop 7.1+).
+                                Нужна A-запись на IP сервера. Пусто = WEB-прокси выключен.
   --bot-token TOKEN             Telegram bot token (@BotFather) — для vps-admin
   --bot-chat ID                 chat_id админа (@userinfobot) — для vps-admin
   --no-bot                      vps-admin без Telegram-бота (панель + сбор)
@@ -147,6 +150,13 @@ fi
 [ -n "${TG_DOMAIN:-}" ] || ask TG_DOMAIN "Домен-маска для Telegram (FakeTLS SNI)" "petrovich.ru"
 if [ -z "${TG_SECRET:-}" ]; then TG_SECRET=$(gen_hex 16); fi
 
+# WEB-прокси Telegram (новый тип, Desktop 7.1+): MTProto внутри обычного HTTPS.
+# Опционально; нужен СВОЙ домен (не маска) с A-записью на IP сервера.
+TG_WEB_DOMAIN="${TG_WEB_DOMAIN:-}"
+if [ -z "$TG_WEB_DOMAIN" ] && [ "$ASSUME_YES" != "1" ]; then
+    ask TG_WEB_DOMAIN "Домен для Telegram WEB-прокси (HTTPS; пусто = выключить)" ""
+fi
+
 [ -n "${WITH_AWG:-}" ] || ask_yn WITH_AWG "Ставить AmneziaWG 3.1 (UDP-443)?" "y"
 if [ "$WITH_AWG" = "1" ]; then
     [ -n "${AWG_KERNEL:-}" ] || ask_yn AWG_KERNEL "Kernel mode для AWG (быстрее; модуль ядра DKMS)?" "y"
@@ -176,13 +186,14 @@ if [ "$WITH_VPSADMIN" = "1" ]; then
     fi
 fi
 
-export SERVER_IP TG_DOMAIN TG_SECRET WITH_AWG AWG_KERNEL WITH_VPSADMIN BOT_TOKEN BOT_CHAT NO_BOT
+export SERVER_IP TG_DOMAIN TG_SECRET TG_WEB_DOMAIN WITH_AWG AWG_KERNEL WITH_VPSADMIN BOT_TOKEN BOT_CHAT NO_BOT
 export SHVPN_REPO SHVPN_BRANCH SHVPN_TOKEN
 VPSADMIN_VERSION="${VPSADMIN_VERSION:-}"
 export VPSADMIN_VERSION
 # сохраняем выбор для повторных прогонов (env.sh — root-only 600, дедуп по ключу)
 save_env "SHVPN_REPO=$SHVPN_REPO" "SHVPN_BRANCH=$SHVPN_BRANCH" \
-         "WITH_AWG=$WITH_AWG" "AWG_KERNEL=$AWG_KERNEL" "WITH_VPSADMIN=$WITH_VPSADMIN"
+         "WITH_AWG=$WITH_AWG" "AWG_KERNEL=$AWG_KERNEL" "WITH_VPSADMIN=$WITH_VPSADMIN" \
+         "TG_WEB_DOMAIN=$TG_WEB_DOMAIN"
 [ -n "$SHVPN_TOKEN" ] && save_env "SHVPN_TOKEN=$SHVPN_TOKEN"
 [ -n "$BOT_TOKEN" ] && save_env "BOT_TOKEN=$BOT_TOKEN" "BOT_CHAT=$BOT_CHAT"
 [ "$NO_BOT" = "1" ] && save_env "NO_BOT=1"
@@ -194,6 +205,7 @@ cat <<EOF
   IP:            $SERVER_IP
   3x-ui:         $([ "$INSTALL_XUI" = 1 ] && echo "новая установка" || echo "существующая")
   Telegram:      telemt, домен-маска $TG_DOMAIN
+  Telegram WEB:  $([ -n "$TG_WEB_DOMAIN" ] && echo "HTTPS-прокси, $TG_WEB_DOMAIN" || echo "выключен (нет --tg-web-domain)")
   AmneziaWG:     $([ "$WITH_AWG" = 1 ] && echo "да, UDP-443, kernel=$AWG_KERNEL" || echo "нет")
   vps-admin:     $([ "$WITH_VPSADMIN" = 1 ] && echo "да (бот + веб-панель)" || echo "нет")
   Firewall:      только 22/tcp + 443/tcp$([ "$WITH_AWG" = 1 ] && echo "+udp")
@@ -239,6 +251,10 @@ REPORT=/root/shvpn-result.txt
     echo "Персональные ссылки (VLESS/AWG/Telegram): бот /user <имя> или панель vps-admin."
     echo "VLESS-клиенты: через vps-admin (/register) или Add Client в панели."
     echo "Ссылки автоматически указывают на $SERVER_IP:443."
+    if [ -n "${TG_WEB_DOMAIN:-}" ]; then
+        echo "Telegram WEB-прокси (HTTPS, Desktop 7.1+): https://$TG_WEB_DOMAIN/"
+        echo "  WEB-ссылки пользователей: бот /user <имя> или панель vps-admin."
+    fi
     echo "Сайт-заглушка:   https://$SERVER_IP/"
     echo
     echo "Логи: journalctl -u telemt -f | -u x-ui -f | -u vps-admin -f"

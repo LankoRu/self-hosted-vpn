@@ -15,10 +15,31 @@ TELEMT_PORT="${TELEMT_PORT:-8443}"
 WEB_PORT="${WEB_PORT:-8444}"
 CERT_DIR="${CERT_DIR:-/root/cert/ip}"
 XUI_DB="${XUI_DB:-/etc/x-ui/x-ui.db}"
+# WEB-прокси Telegram (опционально): свой домен + отдельный WEB-листенер telemt.
+TG_WEB_DOMAIN="${TG_WEB_DOMAIN:-}"
+TELEMT_WEB_PORT="${TELEMT_WEB_PORT:-18080}"
+CERT_DIR_WEB="${CERT_DIR_WEB:-/root/cert/web}"
 export SERVER_IP TG_DOMAIN TG_SECRET TELEMT_PORT WEB_PORT CERT_DIR XUI_DB
+export TG_WEB_DOMAIN TELEMT_WEB_PORT CERT_DIR_WEB
 
 [ "$(id -u)" = 0 ] || die "нужен root"
 export DEBIAN_FRONTEND=noninteractive
+
+# WEB-домен должен быть настоящим FQDN (не IP) и отличаться от домена-маски
+# FakeTLS и от самого IP — иначе stream-роутер уведёт его не в web-бэкенд.
+if [ -n "$TG_WEB_DOMAIN" ]; then
+    python3 - "$TG_WEB_DOMAIN" "$TG_DOMAIN" "$SERVER_IP" <<'PYEOF' || die "некорректный --tg-web-domain"
+import re, sys
+web, mask, ip = sys.argv[1], sys.argv[2], sys.argv[3]
+web = web.strip().lower()
+if web == mask.lower() or web == ip.lower():
+    sys.exit("WEB-домен не должен совпадать с доменом-маской FakeTLS или IP сервера")
+if re.match(r'^\d+\.\d+\.\d+\.\d+$', web) or ':' in web:
+    sys.exit("WEB-домен должен быть FQDN, а не IP-адресом (telemt WEB не принимает IP)")
+if not re.match(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$', web):
+    sys.exit("WEB-домен должен быть полным доменным именем (например tg.example.com)")
+PYEOF
+fi
 
 # ----------------------------------------------------------------------------
 step "1/9 Зависимости"
@@ -165,8 +186,13 @@ if ! command -v telemt >/dev/null 2>&1; then
         || die "установка telemt не удалась"
     rm -f /tmp/telemt-install.sh
 fi
-systemctl stop telemt 2>/dev/null || true
-mkdir -p /etc/nginx/stream.d /var/www/shvpn
+mkdir -p /etc/nginx/stream.d /var/www/shvpn /etc/telemt
+# Сайт-прикрытие кладём ДО старта telemt: WEB-режим строит immutable-снимок
+# каталога при старте (decoy static_directory). В шаге 8 копия повторится (идемпотентно).
+cp "$ROOT/config/site/index.html" /var/www/shvpn/index.html
+# Новый конфиг собираем во ВРЕМЕННОМ файле и валидируем ДО остановки telemt:
+# невалидный конфиг не уронит работающий прокси.
+NEW_CFG=$(mktemp /tmp/shvpn-telemt.XXXXXX)
 # сохраняем существующих пользователей (созданных через API/vps-admin) при повторном прогоне
 OLD_USERS=""
 if [ -f /etc/telemt/telemt.toml ]; then
@@ -181,9 +207,9 @@ if m:
 PYEOF
 )
 fi
-render_tpl "$ROOT/config/telemt.toml.tpl" /etc/telemt/telemt.toml
+render_tpl "$ROOT/config/telemt.toml.tpl" "$NEW_CFG"
 if [ -n "$OLD_USERS" ]; then
-    python3 - /etc/telemt/telemt.toml "$OLD_USERS" <<'PYEOF'
+    python3 - "$NEW_CFG" "$OLD_USERS" <<'PYEOF'
 import re, sys
 path, old = sys.argv[1], sys.argv[2]
 s = open(path).read()
@@ -196,6 +222,38 @@ open(path, "w").write(s)
 PYEOF
     ok "сохранены существующие пользователи telemt"
 fi
+# WEB-прокси: дописываем WEB-листенер + [web] + vhost и генерируем профиль (dd)
+# для каждого пользователя [access.users]. Рендер с нуля каждый прогон, поэтому
+# дублей профилей нет. Фрагмент — отдельный шаблон (только при TG_WEB_DOMAIN).
+if [ -n "$TG_WEB_DOMAIN" ]; then
+    render_tpl "$ROOT/config/telemt-web.toml.tpl" /tmp/shvpn-telemt-web.fragment
+    python3 "$HERE/telemt-web-profiles.py" "$NEW_CFG" /tmp/shvpn-telemt-web.fragment \
+        || die "не удалось добавить WEB-профили telemt"
+    rm -f /tmp/shvpn-telemt-web.fragment
+fi
+# Валидация нового конфига ДО остановки сервиса: tomllib (структура TOML) +
+# telemt healthcheck (полная валидация telemt через parse_source). У healthcheck
+# важен только этап загрузки конфига ("config load failed"); API-проба может не
+# пройти (напр. свежая установка) — это не ошибка конфига.
+python3 - "$NEW_CFG" <<'PYEOF' || die "telemt.toml не парсится как TOML"
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.exit(0)  # старый python без tomllib — проверит telemt ниже
+tomllib.load(open(sys.argv[1], "rb"))
+PYEOF
+if command -v telemt >/dev/null 2>&1; then
+    HC_OUT=$(telemt healthcheck "$NEW_CFG" 2>&1 || true)
+    if printf '%s' "$HC_OUT" | grep -q 'config load failed'; then
+        rm -f "$NEW_CFG"
+        die "новый telemt.toml не прошёл валидацию (старый telemt не остановлен): $HC_OUT"
+    fi
+fi
+# Конфиг валиден — останавливаем старый telemt и устанавливаем новый.
+systemctl stop telemt 2>/dev/null || true
+install -m 660 "$NEW_CFG" /etc/telemt/telemt.toml
+rm -f "$NEW_CFG"
 # владелец telemt + group-write: API-провижининг атомарно перезаписывает конфиг
 # Логи telemt — в файл (см. [logging] в шаблоне); каталог принадлежит telemt.
 install -d -o telemt -g telemt -m 750 /var/log/telemt
@@ -255,6 +313,38 @@ fi
     --post-hook "ufw delete allow 80/tcp" >/dev/null
 ok "сертификат на месте (продление автоматически, :80 открывается на секунды)"
 
+# WEB-прокси: отдельный сертификат на СВОЙ домен TG_WEB_DOMAIN (не IP, поэтому
+# обычный профиль LE, не shortlived). Нужна A-запись домена на IP сервера.
+if [ -n "$TG_WEB_DOMAIN" ]; then
+    python3 "$HERE/check-web-dns.py" "$TG_WEB_DOMAIN" "$SERVER_IP" \
+        || die "DNS: $TG_WEB_DOMAIN не указывает на $SERVER_IP (нужна A-запись)"
+    mkdir -p "$CERT_DIR_WEB"
+    if [ ! -f "$CERT_DIR_WEB/fullchain.pem" ]; then
+        ufw allow 80/tcp >/dev/null 2>&1 || true
+        # standalone занимает :80. Гасим nginx ТОЛЬКО если он слушает :80 — иначе
+        # :443-роутер продолжает работать без простоя.
+        NGINX_STOPPED=0
+        if ss -tln 2>/dev/null | grep -q ':80 '; then
+            systemctl is-active --quiet nginx && { systemctl stop nginx; NGINX_STOPPED=1; }
+        fi
+        "$ACME" --issue --standalone -d "$TG_WEB_DOMAIN" --ecc --server letsencrypt --force \
+            || {
+                [ "$NGINX_STOPPED" = "1" ] && systemctl start nginx
+                ufw delete allow 80/tcp >/dev/null 2>&1 || true
+                die "выпуск WEB-сертификата не удался (нужен свободный :80 и A-запись $TG_WEB_DOMAIN)"
+            }
+        [ "$NGINX_STOPPED" = "1" ] && systemctl start nginx
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+    fi
+    "$ACME" --install-cert -d "$TG_WEB_DOMAIN" --ecc \
+        --key-file "$CERT_DIR_WEB/privkey.pem" \
+        --fullchain-file "$CERT_DIR_WEB/fullchain.pem" \
+        --reloadcmd "systemctl is-active --quiet nginx && systemctl reload nginx || true" \
+        --pre-hook "ufw allow 80/tcp" \
+        --post-hook "ufw delete allow 80/tcp" >/dev/null
+    ok "WEB-сертификат на $TG_WEB_DOMAIN готов"
+fi
+
 # ----------------------------------------------------------------------------
 step "8/9 nginx: SNI-роутер :443 + сайт/панель/подписки"
 cp "$ROOT/config/site/index.html" /var/www/shvpn/index.html
@@ -272,6 +362,15 @@ if ! grep -qE '^stream\s*\{' /etc/nginx/nginx.conf; then
     printf '\nstream {\n    include /etc/nginx/stream.d/*.conf;\n}\n' >> /etc/nginx/nginx.conf
 fi
 ln -sf /etc/nginx/sites-available/shvpn-web /etc/nginx/sites-enabled/shvpn-web
+# WEB-прокси vhost (только при TG_WEB_DOMAIN): тот же loopback-порт, выбор по SNI.
+# SNI этого домена в stream-карте попадает в `default web` — отдельная запись карты
+# не нужна. Без домена — убираем vhost (идемпотентное отключение).
+if [ -n "$TG_WEB_DOMAIN" ]; then
+    render_tpl "$ROOT/config/telemt-web.conf.tpl" /etc/nginx/sites-available/shvpn-telemt-web
+    ln -sf /etc/nginx/sites-available/shvpn-telemt-web /etc/nginx/sites-enabled/shvpn-telemt-web
+else
+    rm -f /etc/nginx/sites-enabled/shvpn-telemt-web /etc/nginx/sites-available/shvpn-telemt-web
+fi
 rm -f /etc/nginx/sites-enabled/default
 nginx -t || die "nginx -t не прошёл"
 systemctl enable nginx >/dev/null 2>&1
@@ -295,6 +394,7 @@ fi
 
 save_env "SERVER_IP=$SERVER_IP" "TG_DOMAIN=$TG_DOMAIN" "TG_SECRET=$TG_SECRET" \
     "TELEMT_PORT=$TELEMT_PORT" "WEB_PORT=$WEB_PORT" "CERT_DIR=$CERT_DIR" \
+    "TG_WEB_DOMAIN=$TG_WEB_DOMAIN" "TELEMT_WEB_PORT=$TELEMT_WEB_PORT" "CERT_DIR_WEB=$CERT_DIR_WEB" \
     "XUI_PORT=$XUI_PORT" "XUI_PATH=$XUI_PATH" "XUI_TOKEN=$XUI_TOKEN" "XUI_SCHEME=$XUI_SCHEME" \
     "VLESS_ID=$VLESS_ID" "SUB_PATH=$SUB_PATH" "PANEL_PATH=$PANEL_PATH"
 
@@ -302,3 +402,6 @@ ok "Базовая схема готова."
 ok "  сайт:    https://$SERVER_IP/"
 ok "  панель:  https://$SERVER_IP$PANEL_PATH"
 ok "  подписки: https://$SERVER_IP$SUB_PATH"
+if [ -n "$TG_WEB_DOMAIN" ]; then
+    ok "  Telegram WEB-прокси: https://$TG_WEB_DOMAIN/"
+fi

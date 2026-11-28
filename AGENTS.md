@@ -77,6 +77,18 @@ vps-admin (агрегатор). Сам vps-admin вендорится в `vendor
 11. **1 GB RAM**: swap 2G создаётся install.sh для DKMS-сборки модуля AWG.
     vps-admin ставится prebuilt-бинарём из Releases — Go на сервере не нужен.
     telemt — готовый бинарник (Rust), не собирать.
+12. **Telegram WEB-прокси** (`--tg-web-domain`, telemt ≥3.5.1): MTProto внутри HTTPS
+    к СВОЕМУ домену (DuckDNS/дешёвый домен). Домен — только FQDN, **не IP** (telemt
+    отклоняет), A-запись на IP сервера, не совпадает с TG_DOMAIN. WEB-листенер
+    127.0.0.1:18080 (plain HTTP, без PROXY), TLS терминирует nginx-vhost
+    `shvpn-telemt-web`; SNI домена идёт в `default web` (SNI-карту менять не нужно).
+    **`shvpn-web` обязан быть `default_server`** на :8444 — иначе WEB-vhost (грузится
+    раньше по алфавиту) отдаст свой серт на запросы по IP и сломает сайт/панель.
+    WEB не поддерживает ee — профили `secret_mode="dd"` на каждый access.user;
+    vps-admin создаёт профиль ПОСЛЕ юзера и убирает ДО удаления (telemt validate).
+    Ссылки `tg://webproxy` vps-admin считает сам (API 3.5.17 их не отдаёт).
+    Точечный деплой на существующий сервер — `scripts/deploy-web.sh` (не трогает
+    3x-ui/apt); конфиг telemt валидируется `telemt healthcheck` ДО остановки сервиса.
 
 ## vps-admin (ключевое, детали в vendor/vps-admin/AGENTS.md)
 

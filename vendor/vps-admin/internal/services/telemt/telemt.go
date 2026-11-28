@@ -285,6 +285,15 @@ func (s *Service) Provision(username string) (*service.Account, error) {
 		})
 	}
 
+	// WEB-прокси (best-effort): профиль + ссылка, если WEB включён в telemt.
+	// Профиль добавляем ПОСЛЕ создания пользователя (telemt валидирует, что
+	// profile.user есть в access.users).
+	if host, werr := s.ensureWebProfile(username); werr != nil {
+		log.Printf("[telemt] WEB-профиль для %s не создан: %v", username, werr)
+	} else if host != "" {
+		items = append(items, webItem(host, secret))
+	}
+
 	return &service.Account{
 		Service:  serviceName,
 		Identity: username,
@@ -294,6 +303,10 @@ func (s *Service) Provision(username string) (*service.Account, error) {
 
 // Deprovision удаляет пользователя telemt (и из config.toml).
 func (s *Service) Deprovision(identity string) error {
+	// WEB-профиль убираем ДО удаления пользователя: telemt не удалит access.user,
+	// на который ссылается WEB-профиль (validate). Best-effort — если WEB выключен,
+	// это no-op.
+	s.removeWebProfile(identity)
 	req, err := s.newRequest(http.MethodDelete, "/v1/users/"+identity, nil)
 	if err != nil {
 		return err

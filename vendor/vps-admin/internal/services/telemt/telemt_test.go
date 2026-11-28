@@ -19,9 +19,17 @@ func itemsText(acc *service.Account) string {
 	return s
 }
 
+// webDisabledConfig — ответ GET /v1/config с выключенным WEB: провижининг MTProto
+// не трогает WEB-профили и не добавляет web-ссылку.
+const webDisabledConfig = `{"ok":true,"data":{"web":{"enabled":false}},"revision":"r1"}`
+
 func TestProvisionUsesTelemtLinks(t *testing.T) {
 	var gotBody map[string]interface{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/config" {
+			_, _ = w.Write([]byte(webDisabledConfig))
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/users" {
 			t.Errorf("неожиданный запрос: %s %s", r.Method, r.URL.Path)
 		}
@@ -98,6 +106,8 @@ func TestProvisionFallsBackToStatsForLinks(t *testing.T) {
 	// ссылки должны дочитаться из GET /v1/stats/users.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
+			_, _ = w.Write([]byte(webDisabledConfig))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/users":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"user":{"username":"alice","links":{}},"secret":"deadbeef"}`))
@@ -130,6 +140,10 @@ func TestProvisionFallsBackToStatsForLinks(t *testing.T) {
 
 func TestDeprovisionAccepts202(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/config" {
+			_, _ = w.Write([]byte(webDisabledConfig))
+			return
+		}
 		if r.Method != http.MethodDelete || r.URL.Path != "/v1/users/router" {
 			t.Errorf("неожиданный запрос: %s %s", r.Method, r.URL.Path)
 		}
