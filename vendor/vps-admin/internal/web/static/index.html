@@ -1399,15 +1399,28 @@ async function pollCompLog(){
     if(c.job.state==="error"){ st.innerHTML = '<span style="color:var(--red)">Ошибка — подробности в логе</span>'; stopCompWatch(); loadComponents(); return; }
     st.innerHTML = '<span style="color:var(--green)">Готово</span>' +
       (c.version!==compWatch.startVersion ? ` · ${esc(compWatch.startVersion)} → ${esc(c.version)}` : "");
-    stopCompWatch(); loadComponents(); return;
+    const selfDone = compWatch.name==="vps-admin";
+    stopCompWatch();
+    if(selfDone){ reloadAfterUpdate(4000); } else { loadComponents(); }
+    return;
   }
   // job исчез (self-restart vps-admin сбросил состояние) — судим по версии.
   if(c.version !== compWatch.startVersion){
     st.innerHTML = '<span style="color:var(--green)">Обновлено до '+esc(c.version)+'</span>';
     log.textContent += "\n>>> Сервис перезапущен, новая версия: "+c.version;
-    stopCompWatch(); loadComponents(); return;
+    const selfGone = compWatch.name==="vps-admin";
+    stopCompWatch();
+    if(selfGone){ reloadAfterUpdate(1500); } else { loadComponents(); }
+    return;
   }
   st.textContent = "ожидание…";
+}
+// reloadAfterUpdate — после self-update vps-admin бинарь (и frontend) новый, но в
+// памяти браузера старый JS. Авто-перезагрузка подхватывает новый интерфейс без
+// ручной перезагрузки. Задержка — чтобы рестарт сервиса успел завершиться.
+function reloadAfterUpdate(ms){
+  const st=$("#compState"); if(st) st.innerHTML += " · перезагрузка страницы…";
+  setTimeout(()=>location.reload(), ms);
 }
 function stopCompWatch(){ if(compWatch && compWatch.timer) clearInterval(compWatch.timer); }
 function closeCompLog(){ stopCompWatch(); compWatch=null; $("#compOverlay").classList.remove("show"); loadComponents().catch(()=>{}); }
