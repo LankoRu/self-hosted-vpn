@@ -116,8 +116,8 @@ func TestListUsesSnapshotNotNetwork(t *testing.T) {
 	r := testRunner()
 	// Снимка нет → localOnly: версии есть, latest/upd пустые, сеть не нужна.
 	bare := r.List()
-	if len(bare) != 5 {
-		t.Fatalf("localOnly = %d компонентов, want 5", len(bare))
+	if len(bare) != 6 {
+		t.Fatalf("localOnly = %d компонентов, want 6", len(bare))
 	}
 	for _, c := range bare {
 		if c.Latest != "" || c.UpdateAvailable {
@@ -173,8 +173,8 @@ func TestCollectionWithoutNetworkStillHasVersions(t *testing.T) {
 	// collect() при недоступной сети не падает и отдаёт версии (для 6 строк).
 	r := testRunner()
 	list := r.collect(context.Background())
-	if len(list) != 5 {
-		t.Fatalf("collect = %d, want 5", len(list))
+	if len(list) != 6 {
+		t.Fatalf("collect = %d, want 6", len(list))
 	}
 	names := map[string]bool{}
 	for _, c := range list {

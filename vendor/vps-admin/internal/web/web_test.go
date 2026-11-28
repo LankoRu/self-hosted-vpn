@@ -1095,8 +1095,8 @@ func TestComponentsAPI(t *testing.T) {
 	json.NewDecoder(r.Body).Decode(&resp)
 	r.Body.Close()
 	list := resp.Components
-	if len(list) != 5 {
-		t.Fatalf("компонентов = %d, want 5", len(list))
+	if len(list) != 6 {
+		t.Fatalf("компонентов = %d, want 6", len(list))
 	}
 	byName := map[string]bool{}
 	for _, c := range list {
@@ -1107,6 +1107,12 @@ func TestComponentsAPI(t *testing.T) {
 	}
 	if byName["amneziawg"] {
 		t.Error("amneziawg не должен быть updatable")
+	}
+	if _, ok := byName["web-proxy"]; !ok {
+		t.Error("web-proxy (донастройка WEB) должен быть в списке")
+	}
+	if byName["web-proxy"] {
+		t.Error("web-proxy — донастройка, не version-update (не updatable)")
 	}
 	if _, ok := byName["nginx"]; ok {
 		t.Error("nginx не должен появляться в списке компонентов")
