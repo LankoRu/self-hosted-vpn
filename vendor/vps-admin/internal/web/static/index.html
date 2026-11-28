@@ -1338,21 +1338,27 @@ function renderWebProxyRow(c){
   if(running){
     action = `<button class="ghost" onclick="openCompLog('web-proxy')">Прогресс…</button>`;
   } else if(configured){
-    action = `<span class="muted" style="font-size:11px">смена домена — install.sh</span>`;
+    action = `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="webDomainInput" type="text" value="${esc(c.web_domain)}"
+        style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--code-bg);color:var(--fg);font-size:12px;min-width:180px">
+      <button class="ghost warnbtn" onclick="setupWebProxy(true)">Сменить домен</button></span>`;
   } else {
     action = `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="webDomainInput" type="text" placeholder="tg.example.duckdns.org"
         style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--code-bg);color:var(--fg);font-size:12px;min-width:180px">
-      <button class="ghost warnbtn" onclick="setupWebProxy()">Настроить</button></span>`;
+      <button class="ghost warnbtn" onclick="setupWebProxy(false)">Настроить</button></span>`;
   }
   return `<div class="row"><span><b>${esc(c.title)}</b>${state}<br>${status}
     <br><span class="muted" style="font-size:11px">${esc(c.note||"")}</span></span><span>${action}</span></div>`;
 }
-async function setupWebProxy(){
+async function setupWebProxy(isChange){
   const inp=document.getElementById("webDomainInput");
   const domain=(inp?inp.value:"").trim().toLowerCase();
   if(!domain){ toast("Введите домен, например tg.example.duckdns.org"); return; }
-  if(!confirm("Настроить WEB-прокси для «"+domain+"»?\n\nДомен должен иметь A-запись на IP этого сервера.\nБудет выпущен сертификат, настроены telemt и nginx. Откроется окно прогресса.")) return;
+  const msg = isChange
+    ? "Сменить WEB-домен на «"+domain+"»?\n\nВСЕ WEB-ссылки изменятся — клиентам нужно раздать новые.\nДомен должен иметь A-запись на IP этого сервера. Будет выпущен новый сертификат."
+    : "Настроить WEB-прокси для «"+domain+"»?\n\nДомен должен иметь A-запись на IP этого сервера.\nБудет выпущен сертификат, настроены telemt и nginx. Откроется окно прогресса.";
+  if(!confirm(msg)) return;
   try { await api("POST","/api/web-proxy/setup",{domain}); }
   catch(e){ toast(e.message); return; }
   openCompLog("web-proxy");

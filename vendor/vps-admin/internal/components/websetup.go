@@ -12,10 +12,14 @@ package components
 // вне Go-модуля, поэтому здесь их копии — держать синхронными с config/.
 
 import (
+	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -275,7 +279,10 @@ func issueWebCert(ctx context.Context, r *Runner, j *jobState, domain, certDir s
 		return err
 	}
 	fullchain := filepath.Join(certDir, "fullchain.pem")
-	if _, err := os.Stat(fullchain); os.IsNotExist(err) {
+	// Выпускаем, если acme ещё не выдавал серт для ЭТОГО домена. При смене домена
+	// fullchain в certDir может быть от старого — поэтому проверяем именно домен.
+	acmeCert := filepath.Join(homeDir(), ".acme.sh", domain+"_ecc", domain+".cer")
+	if _, err := os.Stat(acmeCert); os.IsNotExist(err) {
 		_ = r.streamCmd(ctx, j, "ufw", "allow", "80/tcp")
 		// standalone занимает :80; гасим nginx только если он слушает :80.
 		nginxStopped := false
@@ -314,7 +321,9 @@ func setupTelemtWeb(ctx context.Context, r *Runner, j *jobState, domain, ip, tel
 	}
 	existing := string(b)
 	if regexp.MustCompile(`(?m)^\[web\]`).MatchString(existing) {
-		return fmt.Errorf("WEB уже настроен в telemt.toml; для смены домена используйте install.sh --tg-web-domain")
+		// WEB уже настроен — меняем домен vhost через API (профили сохраняются).
+		j.write("WEB уже настроен — меняю домен на " + domain + "\n")
+		return r.changeTelemtWebHost(ctx, j, domain)
 	}
 	fragBytes, err := websetupFS.ReadFile("websetup/telemt-web.toml.tpl")
 	if err != nil {
@@ -368,6 +377,88 @@ func setupTelemtWeb(ctx context.Context, r *Runner, j *jobState, domain, ip, tel
 	return nil
 }
 
+// changeTelemtWebHost меняет домен уже настроенного WEB-vhost через control-API
+// (профили/пользователи сохраняются), затем перезапускает telemt. Файл мог быть
+// пересериализован telemt при PATCH профилей, поэтому правим через API, а не sed.
+func (r *Runner) changeTelemtWebHost(ctx context.Context, j *jobState, newDomain string) error {
+	base := strings.TrimRight(r.cfg.TeleMT.BaseURL, "/")
+	if base == "" {
+		return fmt.Errorf("telemt base_url не задан в конфиге vps-admin")
+	}
+	auth := r.cfg.TeleMT.AdminKey
+
+	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/config", nil)
+	if err != nil {
+		return err
+	}
+	if auth != "" {
+		getReq.Header.Set("Authorization", auth)
+	}
+	resp, err := r.client.Do(getReq)
+	if err != nil {
+		return fmt.Errorf("telemt config: %w", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("telemt config status %d", resp.StatusCode)
+	}
+	var env struct {
+		Data struct {
+			Web struct {
+				Vhosts []map[string]interface{} `json:"vhosts"`
+			} `json:"web"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return fmt.Errorf("decode telemt config: %w", err)
+	}
+	vhosts := env.Data.Web.Vhosts
+	if len(vhosts) == 0 {
+		return fmt.Errorf("в telemt нет web.vhosts")
+	}
+	// Меняем host у vhost с текущим доменом (иначе у первого).
+	old := r.webDomain()
+	idx := 0
+	for i, vh := range vhosts {
+		if h, _ := vh["host"].(string); h == old {
+			idx = i
+			break
+		}
+	}
+	vhosts[idx]["host"] = newDomain
+
+	patchBody, _ := json.Marshal(map[string]interface{}{
+		"web": map[string]interface{}{"vhosts": vhosts},
+	})
+	patchReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, base+"/v1/config", bytes.NewReader(patchBody))
+	if err != nil {
+		return err
+	}
+	if auth != "" {
+		patchReq.Header.Set("Authorization", auth)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+	presp, err := r.client.Do(patchReq)
+	if err != nil {
+		return fmt.Errorf("telemt patch config: %w", err)
+	}
+	pb, _ := io.ReadAll(presp.Body)
+	presp.Body.Close()
+	if presp.StatusCode < 200 || presp.StatusCode >= 300 {
+		return fmt.Errorf("telemt patch config status %d: %s", presp.StatusCode, strings.TrimSpace(string(pb)))
+	}
+	j.write("Домен WEB-vhost изменён на " + newDomain + ", перезапуск telemt\n")
+	if err := r.streamCmd(ctx, j, "systemctl", "restart", "telemt"); err != nil {
+		return err
+	}
+	time.Sleep(time.Second)
+	if r.cmd(ctx, "systemctl", "is-active", "--quiet", "telemt").Run() != nil {
+		return fmt.Errorf("telemt не стартовал после смены домена (journalctl -u telemt)")
+	}
+	return nil
+}
+
 // --- nginx ------------------------------------------------------------------
 
 func setupNginxWeb(ctx context.Context, r *Runner, j *jobState, domain, webPort, certDir, telemtWebPort string) error {
@@ -415,7 +506,7 @@ func (r *Runner) webProxy() Component {
 	if d := r.webDomain(); d != "" {
 		c.WebDomain = d
 		c.Version = d
-		c.Note = "Настроен. Смена домена — install.sh --tg-web-domain."
+		c.Note = "Настроен. Домен можно сменить кнопкой рядом."
 	} else {
 		c.Version = "не настроен"
 		c.Note = "MTProto внутри HTTPS к своему домену (Telegram Desktop 7.1+). Нужен домен с A-записью на " + ip + "."
